@@ -1,0 +1,782 @@
+import 'package:flutter/material.dart';
+import '../../core/constants/colors.dart';
+
+class FolderViewScreen extends StatefulWidget {
+  final String folderName;
+  final Color accentColor;
+  final IconData folderIcon;
+  final String basePath;
+
+  const FolderViewScreen({
+    super.key,
+    this.folderName = 'Mathematics',
+    this.accentColor = const Color(0xFF035955),
+    this.folderIcon = Icons.calculate_rounded,
+    this.basePath = '',
+  });
+
+  @override
+  State<FolderViewScreen> createState() => _FolderViewScreenState();
+}
+
+class _FolderViewScreenState extends State<FolderViewScreen>
+    with TickerProviderStateMixin {
+  late AnimationController _headerAnimController;
+  late Animation<double> _headerSlideAnim;
+
+  String _selectedFilter = 'All';
+  String _selectedSort = 'Newest';
+  bool _isGridView = true;
+  bool _isLoading = false;
+
+  final List<String> _filters = ['All', 'This Week', 'This Month'];
+  final List<String> _sortOptions = ['Newest', 'Oldest', 'Name'];
+
+  // ── MOCK DATA ────────────────────────────────────────────────────
+  late List<Map<String, dynamic>> _photos;
+  final Set<int> _selectedIds = {};
+  bool get _isSelecting => _selectedIds.isNotEmpty;
+
+  void _initMockPhotos() {
+    _photos = List.generate(6, (i) => {
+      'id': i,
+      'path': '',
+      'date': i == 0 ? 'Today, 10:30 AM' : i == 1 ? 'Yesterday, 2:15 PM' : '${10 - i}/3/2025',
+      'label': 'lecture_note_${i + 1}.jpg',
+      'size': '${1 + i}.${2 * i} MB',
+    });
+  }
+  // ────────────────────────────────────────────────────────────────
+
+  @override
+  void initState() {
+    super.initState();
+    _initMockPhotos();
+    _headerAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+    _headerSlideAnim = CurvedAnimation(
+      parent: _headerAnimController,
+      curve: Curves.easeOut,
+    );
+    _headerAnimController.forward();
+  }
+
+  @override
+  void dispose() {
+    _headerAnimController.dispose();
+    super.dispose();
+  }
+
+  // Read args from Navigator
+  String get _folderName {
+    return widget.folderName;
+  }
+
+  void _toggleSelect(int id) {
+    setState(() {
+      if (_selectedIds.contains(id)) {
+        _selectedIds.remove(id);
+      } else {
+        _selectedIds.add(id);
+      }
+    });
+  }
+
+  void _showSortDialog() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Sort by',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: _sortOptions.map((s) {
+            return RadioListTile<String>(
+              value: s,
+              groupValue: _selectedSort,
+              activeColor: const Color(0xFF89B0AE),
+              title: Text(s),
+              onChanged: (val) {
+                setState(() => _selectedSort = val!);
+                Navigator.pop(context);
+              },
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  void _showFolderMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        margin: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40, height: 4,
+              margin: const EdgeInsets.only(top: 12, bottom: 16),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            _sheetTile(Icons.refresh_rounded, 'Refresh',
+                const Color(0xFF035955), () => Navigator.pop(context)),
+            _sheetTile(Icons.delete_outline_rounded, 'Delete Folder',
+                const Color(0xFFE07A5F), () => Navigator.pop(context)),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showPhotoOptions(BuildContext context, Map<String, dynamic> photo) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _buildBottomSheet(photo),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Support receiving args from home screen
+    final args = ModalRoute.of(context)?.settings.arguments;
+    String displayName = widget.folderName;
+    IconData displayIcon = widget.folderIcon;
+    if (args is Map) {
+      displayName = args['folderName'] as String? ?? widget.folderName;
+      displayIcon = args['icon'] as IconData? ?? widget.folderIcon;
+    }
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: Column(
+        children: [
+          SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, -0.3),
+              end: Offset.zero,
+            ).animate(_headerSlideAnim),
+            child: _buildHeader(displayName, displayIcon),
+          ),
+          Expanded(
+            child: _isLoading
+                ? const Center(
+                    child: CircularProgressIndicator(color: AppColors.headerCard))
+                : Column(
+                    children: [
+                      const SizedBox(height: 16),
+                      _buildFilterRow(),
+                      const SizedBox(height: 16),
+                      Expanded(
+                        child: _photos.isEmpty
+                            ? _buildEmptyState()
+                            : _isGridView
+                                ? _buildPhotoGrid()
+                                : _buildPhotoList(),
+                      ),
+                    ],
+                  ),
+          ),
+        ],
+      ),
+      bottomNavigationBar: _isSelecting ? _buildSelectionBar() : null,
+      floatingActionButton: _isSelecting
+          ? null
+          : FloatingActionButton(
+              onPressed: () =>
+                  Navigator.pushNamed(context, '/upload'),
+              backgroundColor: AppColors.headerCard,
+              foregroundColor: Colors.white,
+              child: const Icon(Icons.add_photo_alternate_rounded),
+            ),
+    );
+  }
+
+  Widget _buildHeader(String displayName, IconData displayIcon) {
+    final photoCount = _photos.length;
+
+    return Container(
+      width: double.infinity,
+      decoration: const BoxDecoration(
+        color: AppColors.headerCard,
+        borderRadius: BorderRadius.only(
+          bottomLeft: Radius.circular(28),
+          bottomRight: Radius.circular(28),
+        ),
+        boxShadow: [
+          BoxShadow(color: Color(0x55035955), blurRadius: 18, offset: Offset(0, 6)),
+        ],
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 26),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  GestureDetector(
+                    onTap: () => Navigator.maybePop(context),
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.arrow_back_rounded,
+                          color: Colors.white, size: 20),
+                    ),
+                  ),
+                  const Spacer(),
+                  GestureDetector(
+                    onTap: () => setState(() => _isGridView = !_isGridView),
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(
+                        _isGridView ? Icons.view_list_rounded : Icons.grid_view_rounded,
+                        color: Colors.white, size: 20,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: _showFolderMenu,
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.more_vert_rounded,
+                          color: Colors.white, size: 20),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.18),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Icon(displayIcon, color: Colors.white, size: 28),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(displayName,
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 4),
+                        Text('$photoCount photos • 12.4 MB',
+                            style: const TextStyle(
+                                color: Colors.white70, fontSize: 12)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  _headerStatChip(Icons.photo_rounded, '$photoCount Photos'),
+                  const SizedBox(width: 8),
+                  _headerStatChip(Icons.storage_rounded, '12.4 MB'),
+                  const SizedBox(width: 8),
+                  _headerStatChip(Icons.folder_rounded, displayName),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _headerStatChip(IconData icon, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.white70, size: 12),
+          const SizedBox(width: 5),
+          Text(label,
+              style: const TextStyle(
+                  color: Colors.white, fontSize: 11, fontWeight: FontWeight.w500)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterRow() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Row(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              child: Row(
+                children: _filters.map((f) {
+                  final isSelected = _selectedFilter == f;
+                  return GestureDetector(
+                    onTap: () => setState(() => _selectedFilter = f),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      margin: const EdgeInsets.only(right: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: isSelected ? const Color(0xFF89B0AE) : Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: isSelected
+                              ? const Color(0xFF89B0AE)
+                              : Colors.grey.shade300,
+                        ),
+                        boxShadow: isSelected
+                            ? const [BoxShadow(
+                                color: Color(0x3389B0AE),
+                                blurRadius: 6, offset: Offset(0, 2))]
+                            : [],
+                      ),
+                      child: Text(f,
+                          style: TextStyle(
+                              color: isSelected ? Colors.white : Colors.grey.shade600,
+                              fontSize: 12,
+                              fontWeight: isSelected
+                                  ? FontWeight.bold
+                                  : FontWeight.normal)),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: _showSortDialog,
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: Icon(Icons.sort_rounded, color: Colors.grey.shade600, size: 20),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPhotoGrid() {
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
+      physics: const BouncingScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+        childAspectRatio: 0.85,
+      ),
+      itemCount: _photos.length,
+      itemBuilder: (context, index) => _buildPhotoCard(_photos[index]),
+    );
+  }
+
+  Widget _buildPhotoCard(Map<String, dynamic> photo) {
+    final isSelected = _selectedIds.contains(photo['id']);
+    return GestureDetector(
+      onTap: () { if (_isSelecting) _toggleSelect(photo['id'] as int); },
+      onLongPress: () => _toggleSelect(photo['id'] as int),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF89B0AE) : const Color(0xFFEEEEEE),
+            width: isSelected ? 2 : 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: isSelected ? const Color(0x3389B0AE) : const Color(0x0A000000),
+              blurRadius: isSelected ? 10 : 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Stack(
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(15),
+                      topRight: Radius.circular(15),
+                    ),
+                    child: Container(
+                      width: double.infinity,
+                      color: Colors.grey.shade100,
+                      child: Icon(Icons.image_rounded,
+                          color: Colors.grey.shade300, size: 48),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(photo['label'] as String,
+                          style: const TextStyle(
+                              color: AppColors.bodyText,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 11),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
+                      const SizedBox(height: 3),
+                      Text(photo['date'] as String,
+                          style: TextStyle(
+                              color: Colors.grey.shade500, fontSize: 10)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (isSelected)
+              Positioned(
+                top: 8, right: 8,
+                child: Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: const BoxDecoration(
+                      color: Color(0xFF89B0AE), shape: BoxShape.circle),
+                  child: const Icon(Icons.check_rounded,
+                      color: Colors.white, size: 14),
+                ),
+              ),
+            if (!_isSelecting)
+              Positioned(
+                top: 8, right: 8,
+                child: GestureDetector(
+                  onTap: () => _showPhotoOptions(context, photo),
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.25),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Icon(Icons.more_horiz_rounded,
+                        color: Colors.white, size: 14),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPhotoList() {
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
+      physics: const BouncingScrollPhysics(),
+      itemCount: _photos.length,
+      itemBuilder: (context, index) {
+        final photo = _photos[index];
+        final isSelected = _selectedIds.contains(photo['id']);
+        return GestureDetector(
+          onTap: () { if (_isSelecting) _toggleSelect(photo['id'] as int); },
+          onLongPress: () => _toggleSelect(photo['id'] as int),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: isSelected ? const Color(0xFF89B0AE) : const Color(0xFFEEEEEE),
+                width: isSelected ? 2 : 1,
+              ),
+              boxShadow: const [
+                BoxShadow(color: Color(0x08000000), blurRadius: 6, offset: Offset(0, 2)),
+              ],
+            ),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    width: 56, height: 56,
+                    color: Colors.grey.shade100,
+                    child: Icon(Icons.image_rounded,
+                        color: Colors.grey.shade300, size: 28),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(photo['label'] as String,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                              color: AppColors.bodyText),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
+                      const SizedBox(height: 4),
+                      Text(photo['date'] as String,
+                          style: TextStyle(
+                              color: Colors.grey.shade500, fontSize: 11)),
+                    ],
+                  ),
+                ),
+                Text(photo['size'] as String,
+                    style: TextStyle(color: Colors.grey.shade400, fontSize: 11)),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () => _showPhotoOptions(context, photo),
+                  child: Icon(Icons.more_vert_rounded,
+                      color: Colors.grey.shade400, size: 20),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: const Color(0xFF89B0AE).withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.photo_library_outlined,
+                  color: Color(0xFF89B0AE), size: 52),
+            ),
+            const SizedBox(height: 20),
+            const Text('No photos yet',
+                style: TextStyle(
+                    color: AppColors.bodyText,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18)),
+            const SizedBox(height: 8),
+            Text(
+              'Upload whiteboard photos and they\'ll be sorted here automatically',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: () => Navigator.pushNamed(context, '/upload'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF89B0AE),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+              icon: const Icon(Icons.upload_rounded, size: 18),
+              label: const Text('Upload Now',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSelectionBar() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 12,
+              offset: const Offset(0, -4)),
+        ],
+      ),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: () => setState(() => _selectedIds.clear()),
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.close_rounded, color: Colors.grey, size: 20),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text('${_selectedIds.length} selected',
+                style: const TextStyle(
+                    color: AppColors.bodyText,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15)),
+          ),
+          GestureDetector(
+            onTap: () => setState(() {
+              _photos.removeWhere((p) => _selectedIds.contains(p['id']));
+              _selectedIds.clear();
+            }),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE07A5F).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFE07A5F).withOpacity(0.3)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.delete_outline_rounded,
+                      color: Color(0xFFE07A5F), size: 16),
+                  SizedBox(width: 6),
+                  Text('Delete',
+                      style: TextStyle(
+                          color: Color(0xFFE07A5F),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomSheet(Map<String, dynamic> photo) {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 40, height: 4,
+            margin: const EdgeInsets.only(top: 12, bottom: 16),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade300,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              children: [
+                Container(
+                  width: 44, height: 44,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.image_rounded,
+                      color: Colors.grey.shade300, size: 24),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(photo['label'] as String,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 13),
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      Text(photo['date'] as String,
+                          style: TextStyle(
+                              color: Colors.grey.shade500, fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Divider(height: 1),
+          const SizedBox(height: 8),
+          _sheetTile(Icons.share_rounded, 'Share', const Color(0xFF4A90D9),
+              () => Navigator.pop(context)),
+          _sheetTile(Icons.delete_outline_rounded, 'Delete',
+              const Color(0xFFE07A5F), () {
+            Navigator.pop(context);
+            setState(() => _photos.remove(photo));
+          }),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+
+  Widget _sheetTile(
+      IconData icon, String label, Color color, VoidCallback onTap) {
+    return ListTile(
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(icon, color: color, size: 20),
+      ),
+      title: Text(label,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+      trailing: Icon(Icons.arrow_forward_ios_rounded,
+          size: 14, color: Colors.grey.shade400),
+      onTap: onTap,
+    );
+  }
+}
