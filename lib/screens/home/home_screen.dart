@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../core/constants/colors.dart';
+import '../../services/storage_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -15,19 +17,10 @@ class _HomeScreenState extends State<HomeScreen>
 
   int _selectedNavIndex = 0;
 
-  // ── MOCK DATA ────────────────────────────────────────────────────
-  final List<String> _subjects = [
-    'Mathematics', 'Physics', 'Chemistry', 'AI & ML', 'History', 'English'
-  ];
-  final String _basePath = '/storage/emulated/0/LectureVault';
-  final Map<String, int> _photoCounts = {
-    'Mathematics': 12, 'Physics': 8, 'Chemistry': 5,
-    'AI & ML': 17, 'History': 3, 'English': 6,
-  };
-  final int _totalPhotos = 51;
-  final int _unclassified = 0;
-  final bool _isLoading = false;
-  // ────────────────────────────────────────────────────────────────
+  // loaded from SharedPreferenc
+  List<String> _subjects = [];
+  String? _basePath;
+  bool _isLoading = true;
 
   final List<IconData> _subjectIcons = [
     Icons.calculate_rounded, Icons.science_rounded, Icons.biotech_rounded,
@@ -58,8 +51,25 @@ class _HomeScreenState extends State<HomeScreen>
       curve: Curves.elasticOut,
     );
     _fabAnimController.forward();
+    _loadData();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    final subjects = await StorageService.getSubjects();
+    final basePath = await StorageService.getBasePath();
+    setState(() {
+      _subjects = subjects;
+      _basePath = basePath;
+      _isLoading = false;
+    });
+  }
   @override
   void dispose() {
     _fabAnimController.dispose();
@@ -72,7 +82,7 @@ class _HomeScreenState extends State<HomeScreen>
       backgroundColor: AppColors.background,
       body: RefreshIndicator(
         color: AppColors.headerCard,
-        onRefresh: () async => await Future.delayed(const Duration(milliseconds: 500)),
+        onRefresh: _loadData,
         child: Column(
           children: [
             _buildHeader(),
@@ -88,11 +98,13 @@ class _HomeScreenState extends State<HomeScreen>
                           const SizedBox(height: 20),
                           _buildStatCards(),
                           const SizedBox(height: 24),
-                          if (_unclassified > 0) _buildUnclassifiedBanner(),
-                          if (_unclassified > 0) const SizedBox(height: 24),
-                          _buildSectionHeader(),
-                          const SizedBox(height: 16),
-                          _buildSubjectGrid(),
+                          if (_subjects.isEmpty)
+                            _buildEmptyState()
+                          else ...[
+                            _buildSectionHeader(),
+                            const SizedBox(height: 16),
+                            _buildSubjectGrid(),
+                          ],
                           const SizedBox(height: 100),
                         ],
                       ),
@@ -104,7 +116,10 @@ class _HomeScreenState extends State<HomeScreen>
       floatingActionButton: ScaleTransition(
         scale: _fabScaleAnim,
         child: FloatingActionButton.extended(
-          onPressed: () => Navigator.pushNamed(context, '/upload'),
+          onPressed: () async {
+            await Navigator.pushNamed(context, '/upload');
+            _loadData();
+          },
           backgroundColor: AppColors.headerCard,
           foregroundColor: Colors.white,
           elevation: 4,
@@ -163,10 +178,11 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                   Row(
                     children: [
-                      _headerIconButton(Icons.refresh_rounded, () {}),
+                      _headerIconButton(Icons.refresh_rounded, _loadData),
                       const SizedBox(width: 8),
                       _headerIconButton(Icons.settings_outlined,
-                          () => Navigator.pushNamed(context, '/settings')),
+                          () => Navigator.pushNamed(context, '/settings')
+                              .then((_) => _loadData())),
                     ],
                   ),
                 ],
@@ -182,26 +198,27 @@ class _HomeScreenState extends State<HomeScreen>
                       fontWeight: FontWeight.bold,
                       height: 1.25)),
               const SizedBox(height: 18),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(14),
+              if (_basePath != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.folder_rounded,
+                          color: Colors.white70, size: 14),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(_basePath!,
+                            style: const TextStyle(
+                                color: Colors.white60, fontSize: 11),
+                            overflow: TextOverflow.ellipsis),
+                      ),
+                    ],
+                  ),
                 ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.folder_rounded,
-                        color: Colors.white70, size: 14),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(_basePath,
-                          style: const TextStyle(
-                              color: Colors.white60, fontSize: 11),
-                          overflow: TextOverflow.ellipsis),
-                    ),
-                  ],
-                ),
-              ),
             ],
           ),
         ),
@@ -225,11 +242,11 @@ class _HomeScreenState extends State<HomeScreen>
 
   Widget _buildStatCards() {
     final stats = [
-      {'label': 'Total Photos', 'value': '$_totalPhotos',
+      {'label': 'Total Photos', 'value': '0',
         'icon': Icons.photo_library_rounded, 'color': const Color(0xFF035955)},
       {'label': 'Subjects', 'value': '${_subjects.length}',
         'icon': Icons.folder_rounded, 'color': const Color(0xFF89B0AE)},
-      {'label': 'Unclassified', 'value': '$_unclassified',
+      {'label': 'Unclassified', 'value': '0',
         'icon': Icons.help_outline_rounded, 'color': const Color(0xFFE07A5F)},
     ];
 
@@ -284,62 +301,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildUnclassifiedBanner() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-              colors: [Color(0xFFFFF3F1), Color(0xFFFFECE8)]),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE07A5F).withOpacity(0.3)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE07A5F).withOpacity(0.15),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(Icons.warning_amber_rounded,
-                  color: Color(0xFFE07A5F), size: 22),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('$_unclassified photo${_unclassified > 1 ? 's' : ''} need attention',
-                      style: const TextStyle(
-                          color: Color(0xFFB85C45),
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13)),
-                  const SizedBox(height: 2),
-                  const Text('These could not be auto-classified',
-                      style: TextStyle(color: Color(0xFFB85C45), fontSize: 11)),
-                ],
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE07A5F),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Text('Review',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildSectionHeader() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -369,9 +330,7 @@ class _HomeScreenState extends State<HomeScreen>
               child: Text(
                 '${_subjects.length} folder${_subjects.length != 1 ? 's' : ''}',
                 style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600),
+                    color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
               ),
             ),
           ],
@@ -400,7 +359,6 @@ class _HomeScreenState extends State<HomeScreen>
 
   Widget _buildSubjectCard(int index) {
     final subject = _subjects[index];
-    final count = _photoCounts[subject] ?? 0;
     final bgColor = _cardColors[index % _cardColors.length];
     final iconColor = _iconColors[index % _iconColors.length];
     final icon = _subjectIcons[index % _subjectIcons.length];
@@ -409,8 +367,8 @@ class _HomeScreenState extends State<HomeScreen>
       onTap: () => Navigator.pushNamed(context, '/folder', arguments: {
         'folderName': subject,
         'icon': icon,
-        'basePath': _basePath,
-      }),
+        'basePath': _basePath ?? '',
+      }).then((_) => _loadData()),
       borderRadius: BorderRadius.circular(18),
       child: Container(
         padding: const EdgeInsets.all(16),
@@ -453,9 +411,55 @@ class _HomeScreenState extends State<HomeScreen>
               children: [
                 Icon(Icons.photo_outlined, size: 12, color: Colors.grey.shade400),
                 const SizedBox(width: 4),
-                Text('$count photo${count != 1 ? 's' : ''}',
+                Text('0 photos',
                     style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: const Color(0xFF89B0AE).withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.folder_open_rounded,
+                  color: Color(0xFF89B0AE), size: 52),
+            ),
+            const SizedBox(height: 20),
+            const Text('No subjects yet',
+                style: TextStyle(
+                    color: AppColors.bodyText,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18)),
+            const SizedBox(height: 8),
+            Text('Go to Settings to add your first subject folder',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: () => Navigator.pushNamed(context, '/settings')
+                  .then((_) => _loadData()),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.headerCard,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+              icon: const Icon(Icons.settings_rounded, size: 18),
+              label: const Text('Go to Settings',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ],
         ),
@@ -493,8 +497,14 @@ class _HomeScreenState extends State<HomeScreen>
     return GestureDetector(
       onTap: () async {
         setState(() => _selectedNavIndex = index);
-        if (index == 1) await Navigator.pushNamed(context, '/upload');
-        if (index == 2) await Navigator.pushNamed(context, '/settings');
+        if (index == 1) {
+          await Navigator.pushNamed(context, '/upload');
+          _loadData();
+        }
+        if (index == 2) {
+          await Navigator.pushNamed(context, '/settings');
+          _loadData();
+        }
       },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
@@ -518,12 +528,12 @@ class _HomeScreenState extends State<HomeScreen>
                         ? AppColors.headerCard
                         : Colors.grey.shade400,
                     fontSize: 10,
-                    fontWeight: isSelected
-                        ? FontWeight.bold
-                        : FontWeight.normal)),
+                    fontWeight:
+                        isSelected ? FontWeight.bold : FontWeight.normal)),
           ],
         ),
       ),
     );
   }
 }
+

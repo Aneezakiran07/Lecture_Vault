@@ -32,7 +32,6 @@ class _FolderViewScreenState extends State<FolderViewScreen>
   final List<String> _filters = ['All', 'This Week', 'This Month'];
   final List<String> _sortOptions = ['Newest', 'Oldest', 'Name'];
 
-  // ── MOCK DATA ────────────────────────────────────────────────────
   late List<Map<String, dynamic>> _photos;
   final Set<int> _selectedIds = {};
   bool get _isSelecting => _selectedIds.isNotEmpty;
@@ -46,8 +45,6 @@ class _FolderViewScreenState extends State<FolderViewScreen>
       'size': '${1 + i}.${2 * i} MB',
     });
   }
-  // ────────────────────────────────────────────────────────────────
-
   @override
   void initState() {
     super.initState();
@@ -780,3 +777,4 @@ class _FolderViewScreenState extends State<FolderViewScreen>
     );
   }
 }
+

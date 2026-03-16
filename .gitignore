@@ -46,5 +46,9 @@ app.*.map.json
 # Ignore environment variables
 .env
 
-# Ignore the entire services folder inside lib
-/lib/services/
+# 1. Ignore the folder's contents, but not the folder itself
+/lib/services/*
+
+# 2. Add an exception for your specific file
+!/lib/services/storage_service.dart
+!/lib/services/permission_service.dart

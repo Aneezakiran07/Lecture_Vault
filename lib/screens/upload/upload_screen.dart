@@ -1,7 +1,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../core/constants/colors.dart';
+import '../../services/storage_service.dart';
+import '../../services/permission_service.dart';
 
 class UploadScreen extends StatefulWidget {
   const UploadScreen({super.key});
@@ -18,16 +22,8 @@ class _UploadScreenState extends State<UploadScreen>
   final ImagePicker _picker = ImagePicker();
   final List<Map<String, dynamic>> _selectedPhotos = [];
 
-  // ── MOCK DATA ────────────────────────────────────────────────────
-  final List<String> _allSubjects = [
-    'Mathematics', 'Physics', 'Chemistry', 'AI & ML', 'History', 'English', 'Unclassified'
-  ];
-  final String _basePath = '/storage/emulated/0/LectureVault';
-  final List<String> _mockSubjectResults = [
-    'Mathematics', 'Physics', 'AI & ML', 'Chemistry', 'History', 'English'
-  ];
-  int _mockResultIndex = 0;
-  // ────────────────────────────────────────────────────────────────
+  List<String> _allSubjects = [];
+  String? _basePath;
 
   bool _isSaving = false;
   int _currentStep = 0;
@@ -45,6 +41,16 @@ class _UploadScreenState extends State<UploadScreen>
       curve: Curves.easeOut,
     );
     _headerAnimController.forward();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final subjects = await StorageService.getSubjects();
+    final basePath = await StorageService.getBasePath();
+    setState(() {
+      _allSubjects = [...subjects, 'Unclassified'];
+      _basePath = basePath;
+    });
   }
 
   @override
@@ -53,7 +59,14 @@ class _UploadScreenState extends State<UploadScreen>
     super.dispose();
   }
 
+
   Future<void> _pickFromGallery() async {
+    final hasPermission = await PermissionService.requestStoragePermission();
+    if (!hasPermission) {
+      _showSnack('Storage permission required', isError: true);
+      return;
+    }
+
     final picked = await _picker.pickMultiImage(imageQuality: 90);
     if (picked.isEmpty) return;
 
@@ -64,69 +77,35 @@ class _UploadScreenState extends State<UploadScreen>
       for (final path in paths) {
         _selectedPhotos.add({
           'path': path,
-          'ocrText': 'Scanning...',
-          'subject': '',
-          'confidence': 0.0,
+          'subject': 'Unclassified',
           'override': null,
-          'isProcessing': true,
+          'isProcessing': false,
         });
-      }
-    });
-
-    final startIdx = _selectedPhotos.length - paths.length;
-
-    // Simulate OCR
-    await Future.delayed(const Duration(milliseconds: 800));
-    setState(() => _currentStep = 2);
-
-    // Simulate classification
-    await Future.delayed(const Duration(milliseconds: 1000));
-
-    setState(() {
-      for (int i = 0; i < paths.length; i++) {
-        final idx = startIdx + i;
-        if (idx >= _selectedPhotos.length) continue;
-        final subject = _mockSubjectResults[_mockResultIndex % _mockSubjectResults.length];
-        _mockResultIndex++;
-        _selectedPhotos[idx]['ocrText'] = 'calculus, derivatives, integration, limits';
-        _selectedPhotos[idx]['subject'] = subject;
-        _selectedPhotos[idx]['confidence'] = 0.88 + (i * 0.02);
-        _selectedPhotos[idx]['isProcessing'] = false;
       }
       _currentStep = 2;
     });
   }
 
   Future<void> _pickFromCamera() async {
+    final hasCam = await PermissionService.requestCameraPermission();
+    if (!hasCam) {
+      _showSnack('Camera permission required', isError: true);
+      return;
+    }
+
     final xFile = await _picker.pickImage(
         source: ImageSource.camera, imageQuality: 90);
     if (xFile == null) return;
 
-    setState(() => _currentStep = 1);
-
-    final entry = {
-      'path': xFile.path,
-      'ocrText': '',
-      'subject': '',
-      'confidence': 0.0,
-      'override': null,
-      'isProcessing': true,
-    };
-    setState(() => _selectedPhotos.add(entry));
-
-    // Simulate OCR + classify
-    await Future.delayed(const Duration(milliseconds: 1500));
-
     setState(() {
-      final idx = _selectedPhotos.indexOf(entry);
-      if (idx != -1) {
-        final subject = _mockSubjectResults[_mockResultIndex % _mockSubjectResults.length];
-        _mockResultIndex++;
-        _selectedPhotos[idx]['ocrText'] = 'vectors, forces, acceleration, momentum';
-        _selectedPhotos[idx]['subject'] = subject;
-        _selectedPhotos[idx]['confidence'] = 0.91;
-        _selectedPhotos[idx]['isProcessing'] = false;
-      }
+      _currentStep = 1;
+      _selectedPhotos.add({
+        'path': xFile.path,
+        'subject': 'Unclassified',
+        'override': null,
+        'isProcessing': false,
+      });
+      _currentStep = 2;
     });
   }
 
@@ -154,11 +133,17 @@ class _UploadScreenState extends State<UploadScreen>
             const Text('Add Photos',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             const SizedBox(height: 16),
-            _pickOptionTile(Icons.photo_library_rounded, 'Choose from Gallery',
-                'Select multiple photos at once', const Color(0xFF035955), _pickFromGallery),
+            _pickOptionTile(
+              Icons.photo_library_rounded, 'Choose from Gallery',
+              'Select multiple photos at once',
+              const Color(0xFF035955), _pickFromGallery,
+            ),
             const Divider(height: 1, indent: 16, endIndent: 16),
-            _pickOptionTile(Icons.camera_alt_rounded, 'Take a Photo',
-                'Capture whiteboard directly', const Color(0xFF89B0AE), _pickFromCamera),
+            _pickOptionTile(
+              Icons.camera_alt_rounded, 'Take a Photo',
+              'Capture whiteboard directly',
+              const Color(0xFF89B0AE), _pickFromCamera,
+            ),
             const SizedBox(height: 16),
           ],
         ),
@@ -188,19 +173,44 @@ class _UploadScreenState extends State<UploadScreen>
   }
 
   Future<void> _confirmAndSave() async {
+    if (_basePath == null) {
+      _showSnack('No storage path set.', isError: true);
+      return;
+    }
+
     setState(() { _isSaving = true; _currentStep = 3; });
-    await Future.delayed(const Duration(milliseconds: 1200)); // mock save
+
+    int saved = 0;
+    int failed = 0;
+
+    for (final photo in _selectedPhotos) {
+      final subject =
+          photo['override'] as String? ?? photo['subject'] as String;
+      final path = photo['path'] as String;
+
+      final result = await StorageService.savePhotoToSubject(
+        sourcePath: path,
+        basePath: _basePath!,
+        subject: subject,
+      );
+
+      if (result != null) {
+        saved++;
+      } else {
+        failed++;
+      }
+    }
+
     setState(() => _isSaving = false);
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('✓ ${_selectedPhotos.length} photo${_selectedPhotos.length > 1 ? 's' : ''} saved successfully!'),
-        backgroundColor: const Color(0xFF035955),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ));
-      await Future.delayed(const Duration(milliseconds: 800));
-      Navigator.pushReplacementNamed(context, '/home');
+      if (failed == 0) {
+        _showSnack('✓ $saved photo${saved > 1 ? 's' : ''} saved successfully!');
+        await Future.delayed(const Duration(milliseconds: 800));
+        Navigator.pop(context);
+      } else {
+        _showSnack('$saved saved, $failed failed.', isError: true);
+      }
     }
   }
 
@@ -209,6 +219,16 @@ class _UploadScreenState extends State<UploadScreen>
       _selectedPhotos.removeAt(index);
       if (_selectedPhotos.isEmpty) _currentStep = 0;
     });
+  }
+
+  void _showSnack(String msg, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor:
+          isError ? const Color(0xFFE07A5F) : const Color(0xFF035955),
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    ));
   }
 
   @override
@@ -228,7 +248,8 @@ class _UploadScreenState extends State<UploadScreen>
                   if (_selectedPhotos.isNotEmpty) ...[
                     const SizedBox(height: 24),
                     _buildSectionHeader('Selected Photos',
-                        Icons.photo_library_rounded, '${_selectedPhotos.length} selected'),
+                        Icons.photo_library_rounded,
+                        '${_selectedPhotos.length} selected'),
                     const SizedBox(height: 14),
                     _buildPhotoStrip(),
                     const SizedBox(height: 24),
@@ -247,6 +268,7 @@ class _UploadScreenState extends State<UploadScreen>
       ),
     );
   }
+
 
   Widget _buildHeader() {
     final steps = ['Select', 'OCR Scan', 'Classify', 'Save'];
@@ -354,6 +376,7 @@ class _UploadScreenState extends State<UploadScreen>
     );
   }
 
+
   Widget _buildUploadZone() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -366,7 +389,7 @@ class _UploadScreenState extends State<UploadScreen>
             color: Colors.white,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: const Color(0xFF89B0AE).withOpacity(0.5), width: 2),
+                color: const Color(0xFF89B0AE).withOpacity(0.5), width: 2),
             boxShadow: const [
               BoxShadow(color: Color(0x0A000000), blurRadius: 12, offset: Offset(0, 4)),
             ],
@@ -473,7 +496,6 @@ class _UploadScreenState extends State<UploadScreen>
       ),
     );
   }
-
   Widget _buildPhotoStrip() {
     return SizedBox(
       height: 100,
@@ -497,10 +519,12 @@ class _UploadScreenState extends State<UploadScreen>
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.add_rounded, color: Colors.grey.shade400, size: 24),
+                    Icon(Icons.add_rounded,
+                        color: Colors.grey.shade400, size: 24),
                     const SizedBox(height: 4),
                     Text('Add more',
-                        style: TextStyle(color: Colors.grey.shade500, fontSize: 10)),
+                        style: TextStyle(
+                            color: Colors.grey.shade500, fontSize: 10)),
                   ],
                 ),
               ),
@@ -508,7 +532,6 @@ class _UploadScreenState extends State<UploadScreen>
           }
 
           final photo = _selectedPhotos[index];
-          final isProcessing = photo['isProcessing'] as bool;
 
           return Stack(
             children: [
@@ -518,44 +541,38 @@ class _UploadScreenState extends State<UploadScreen>
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(14),
                   boxShadow: const [
-                    BoxShadow(color: Color(0x1A000000), blurRadius: 6, offset: Offset(0, 2)),
+                    BoxShadow(
+                        color: Color(0x1A000000),
+                        blurRadius: 6,
+                        offset: Offset(0, 2)),
                   ],
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(14),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      Image.file(File(photo['path'] as String), fit: BoxFit.cover),
-                      if (isProcessing)
-                        Container(
-                          color: Colors.black45,
-                          child: const Center(
-                            child: SizedBox(
-                              width: 20, height: 20,
-                              child: CircularProgressIndicator(
-                                  color: Colors.white, strokeWidth: 2),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              if (!isProcessing)
-                Positioned(
-                  top: 4, right: 14,
-                  child: GestureDetector(
-                    onTap: () => _removePhoto(index),
-                    child: Container(
-                      padding: const EdgeInsets.all(3),
-                      decoration: const BoxDecoration(
-                          color: Color(0xFFE07A5F), shape: BoxShape.circle),
-                      child: const Icon(Icons.close_rounded,
-                          color: Colors.white, size: 11),
+                  child: Image.file(
+                    File(photo['path'] as String),
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      color: Colors.grey.shade200,
+                      child: const Icon(Icons.broken_image_rounded,
+                          color: Colors.grey),
                     ),
                   ),
                 ),
+              ),
+              Positioned(
+                top: 4, right: 14,
+                child: GestureDetector(
+                  onTap: () => _removePhoto(index),
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: const BoxDecoration(
+                        color: Color(0xFFE07A5F), shape: BoxShape.circle),
+                    child: const Icon(Icons.close_rounded,
+                        color: Colors.white, size: 11),
+                  ),
+                ),
+              ),
             ],
           );
         },
@@ -563,6 +580,7 @@ class _UploadScreenState extends State<UploadScreen>
     );
   }
 
+  //  CLASSIFICATION LISt
   Widget _buildClassificationList() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -571,9 +589,8 @@ class _UploadScreenState extends State<UploadScreen>
           final index = entry.key;
           final photo = entry.value;
           final isExpanded = _expandedIndex == index;
-          final isProcessing = photo['isProcessing'] as bool;
-          final subject = photo['override'] as String? ?? photo['subject'] as String;
-          final confidence = photo['confidence'] as double;
+          final subject =
+              photo['override'] as String? ?? photo['subject'] as String;
 
           return AnimatedContainer(
             duration: const Duration(milliseconds: 250),
@@ -582,11 +599,16 @@ class _UploadScreenState extends State<UploadScreen>
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: isExpanded ? const Color(0xFF89B0AE) : const Color(0xFFEEEEEE),
+                color: isExpanded
+                    ? const Color(0xFF89B0AE)
+                    : const Color(0xFFEEEEEE),
                 width: isExpanded ? 1.5 : 1,
               ),
               boxShadow: const [
-                BoxShadow(color: Color(0x08000000), blurRadius: 8, offset: Offset(0, 2)),
+                BoxShadow(
+                    color: Color(0x08000000),
+                    blurRadius: 8,
+                    offset: Offset(0, 2)),
               ],
             ),
             child: Column(
@@ -599,155 +621,103 @@ class _UploadScreenState extends State<UploadScreen>
                         borderRadius: BorderRadius.circular(10),
                         child: SizedBox(
                           width: 52, height: 52,
-                          child: isProcessing
-                              ? Container(
-                                  color: Colors.grey.shade200,
-                                  child: const Center(
-                                    child: SizedBox(
-                                      width: 18, height: 18,
-                                      child: CircularProgressIndicator(
-                                          strokeWidth: 2, color: Color(0xFF89B0AE)),
-                                    ),
-                                  ),
-                                )
-                              : Image.file(File(photo['path'] as String), fit: BoxFit.cover),
+                          child: Image.file(
+                            File(photo['path'] as String),
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              color: Colors.grey.shade200,
+                              child: const Icon(Icons.broken_image_rounded,
+                                  color: Colors.grey),
+                            ),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: isProcessing
-                            ? Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text('Scanning...',
-                                      style: TextStyle(color: Colors.grey, fontSize: 12)),
-                                  const SizedBox(height: 6),
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(4),
-                                    child: LinearProgressIndicator(
-                                      backgroundColor: Colors.grey.shade200,
-                                      color: const Color(0xFF89B0AE),
-                                      minHeight: 4,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Photo ${index + 1}',
+                                style: const TextStyle(
+                                    color: Colors.grey, fontSize: 11)),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: subject == 'Unclassified'
+                                        ? const Color(0xFFE07A5F)
+                                        : const Color(0xFF89B0AE),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Text(subject,
+                                      style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold)),
+                                ),
+                                if (photo['override'] != null) ...[
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFFF3CD),
+                                      borderRadius: BorderRadius.circular(6),
                                     ),
+                                    child: const Text('Edited',
+                                        style: TextStyle(
+                                            color: Color(0xFF856404),
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.bold)),
                                   ),
                                 ],
-                              )
-                            : Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('Photo ${index + 1}',
-                                      style: const TextStyle(
-                                          color: Colors.grey, fontSize: 11)),
-                                  const SizedBox(height: 4),
-                                  Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 10, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: subject == 'Unclassified'
-                                              ? const Color(0xFFE07A5F)
-                                              : const Color(0xFF89B0AE),
-                                          borderRadius: BorderRadius.circular(20),
-                                        ),
-                                        child: Text(
-                                          subject.isEmpty ? 'Classifying...' : subject,
-                                          style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.bold),
-                                        ),
-                                      ),
-                                      if (photo['override'] != null) ...[
-                                        const SizedBox(width: 6),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 6, vertical: 2),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFFFFF3CD),
-                                            borderRadius: BorderRadius.circular(6),
-                                          ),
-                                          child: const Text('Edited',
-                                              style: TextStyle(
-                                                  color: Color(0xFF856404),
-                                                  fontSize: 9,
-                                                  fontWeight: FontWeight.bold)),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: ClipRRect(
-                                          borderRadius: BorderRadius.circular(4),
-                                          child: LinearProgressIndicator(
-                                            value: confidence,
-                                            backgroundColor: Colors.grey.shade200,
-                                            color: confidence > 0.5
-                                                ? const Color(0xFF27AE60)
-                                                : confidence > 0.2
-                                                    ? const Color(0xFFE07A5F)
-                                                    : Colors.red,
-                                            minHeight: 4,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text('${(confidence * 100).toInt()}%',
-                                          style: TextStyle(
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.bold,
-                                              color: confidence > 0.5
-                                                  ? const Color(0xFF27AE60)
-                                                  : const Color(0xFFE07A5F))),
-                                    ],
-                                  ),
-                                  if ((photo['ocrText'] as String).isNotEmpty) ...[
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      'OCR: ${photo['ocrText']}',
-                                      style: const TextStyle(
-                                          color: Colors.grey, fontSize: 10),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ],
-                                ],
-                              ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              photo['path'].toString().split('/').last,
+                              style: const TextStyle(
+                                  color: Colors.grey, fontSize: 10),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
                       ),
-                      if (!isProcessing) ...[
-                        const SizedBox(width: 8),
-                        GestureDetector(
-                          onTap: () => setState(() =>
-                              _expandedIndex = isExpanded ? null : index),
-                          child: AnimatedRotation(
-                            turns: isExpanded ? 0.5 : 0,
-                            duration: const Duration(milliseconds: 200),
-                            child: Container(
-                              padding: const EdgeInsets.all(6),
-                              decoration: BoxDecoration(
-                                color: isExpanded
-                                    ? const Color(0xFF89B0AE).withOpacity(0.1)
-                                    : Colors.grey.shade100,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Icon(
-                                Icons.keyboard_arrow_down_rounded,
-                                color: isExpanded
-                                    ? const Color(0xFF89B0AE)
-                                    : Colors.grey,
-                                size: 20,
-                              ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: () => setState(() =>
+                            _expandedIndex = isExpanded ? null : index),
+                        child: AnimatedRotation(
+                          turns: isExpanded ? 0.5 : 0,
+                          duration: const Duration(milliseconds: 200),
+                          child: Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: isExpanded
+                                  ? const Color(0xFF89B0AE).withOpacity(0.1)
+                                  : Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(
+                              Icons.keyboard_arrow_down_rounded,
+                              color: isExpanded
+                                  ? const Color(0xFF89B0AE)
+                                  : Colors.grey,
+                              size: 20,
                             ),
                           ),
                         ),
-                      ],
+                      ),
                     ],
                   ),
                 ),
-                if (isExpanded && !isProcessing) ...[
+
+                // ── SUBJECT OVERRIDE PICKER ──────────────────────
+                if (isExpanded) ...[
                   Container(height: 1, color: const Color(0xFFEEEEEE)),
                   Padding(
                     padding: const EdgeInsets.all(14),
@@ -812,8 +782,6 @@ class _UploadScreenState extends State<UploadScreen>
   }
 
   Widget _buildBottomActions() {
-    final anyProcessing = _selectedPhotos.any((p) => p['isProcessing'] as bool);
-
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
       decoration: BoxDecoration(
@@ -845,9 +813,8 @@ class _UploadScreenState extends State<UploadScreen>
           Expanded(
             flex: 2,
             child: ElevatedButton(
-              onPressed: (_selectedPhotos.isEmpty || anyProcessing || _isSaving)
-                  ? null
-                  : _confirmAndSave,
+              onPressed:
+                  (_selectedPhotos.isEmpty || _isSaving) ? null : _confirmAndSave,
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.headerCard,
                 foregroundColor: Colors.white,
@@ -857,18 +824,18 @@ class _UploadScreenState extends State<UploadScreen>
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 elevation: 2,
               ),
-              child: _isSaving || anyProcessing
-                  ? Row(
+              child: _isSaving
+                  ? const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const SizedBox(
+                        SizedBox(
                           width: 18, height: 18,
                           child: CircularProgressIndicator(
                               color: Colors.white, strokeWidth: 2.5),
                         ),
-                        const SizedBox(width: 10),
-                        Text(anyProcessing ? 'Scanning...' : 'Saving...',
-                            style: const TextStyle(
+                        SizedBox(width: 10),
+                        Text('Saving...',
+                            style: TextStyle(
                                 fontWeight: FontWeight.bold, fontSize: 14)),
                       ],
                     )
@@ -889,3 +856,5 @@ class _UploadScreenState extends State<UploadScreen>
     );
   }
 }
+
+
