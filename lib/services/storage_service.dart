@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -7,6 +9,7 @@ class StorageService {
   static const _keySubjects = 'subjects';
   static const _keySetupDone = 'setup_done';
 
+  // setup flag
   static Future<bool> isSetupDone() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_keySetupDone) ?? false;
@@ -17,6 +20,7 @@ class StorageService {
     await prefs.setBool(_keySetupDone, true);
   }
 
+  // base path
   static Future<void> saveBasePath(String path) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyBasePath, path);
@@ -39,19 +43,15 @@ class StorageService {
     return prefs.getStringList(_keySubjects) ?? [];
   }
 
-  // photo saving─
-
-  /// Creates the subject folder if it doesn't exist
-  static Future<void> createSubjectFolder(
-      String basePath, String subject) async {
+  // create subject folder on device
+  static Future<void> createSubjectFolder(String basePath, String subject) async {
     final dir = Directory(p.join(basePath, subject));
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }
   }
 
-  /// Copies a photo from [sourcePath] into [basePath]/[subject]/
-  /// Returns the destination path on success, null on failure
+  // copy photo into subject folder, returns destination path or null
   static Future<String?> savePhotoToSubject({
     required String sourcePath,
     required String basePath,
@@ -59,21 +59,16 @@ class StorageService {
   }) async {
     try {
       await createSubjectFolder(basePath, subject);
-
-      final fileName =
-          '${DateTime.now().millisecondsSinceEpoch}_${p.basename(sourcePath)}';
+      final fileName = '${DateTime.now().millisecondsSinceEpoch}_${p.basename(sourcePath)}';
       final destPath = p.join(basePath, subject, fileName);
-
-      final sourceFile = File(sourcePath);
-      await sourceFile.copy(destPath);
-
+      await File(sourcePath).copy(destPath);
       return destPath;
     } catch (e) {
       return null;
     }
   }
 
-  /// Returns all photo files inside [basePath]/[subject]/
+  // get all photos inside a subject folder
   static Future<List<File>> getPhotosInSubject({
     required String basePath,
     required String subject,
@@ -81,7 +76,6 @@ class StorageService {
     try {
       final dir = Directory(p.join(basePath, subject));
       if (!await dir.exists()) return [];
-
       final files = await dir
           .list()
           .where((e) =>
@@ -91,15 +85,30 @@ class StorageService {
                   e.path.endsWith('.png')))
           .map((e) => File(e.path))
           .toList();
-
       return files;
     } catch (e) {
       return [];
     }
   }
 
+  // delete a single photo file from device
+  static Future<bool> deletePhoto(String path) async {
+    try {
+      final file = File(path);
+      if (await file.exists()) {
+        await file.delete();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // reset all prefs
   static Future<void> clearAll() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
   }
 }
+
