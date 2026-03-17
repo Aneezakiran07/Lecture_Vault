@@ -1,10 +1,8 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/services.dart';
 import '../../core/constants/colors.dart';
 import '../../services/storage_service.dart';
+import '../../services/permission_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -18,17 +16,19 @@ class _SettingsScreenState extends State<SettingsScreen>
   late AnimationController _headerAnimController;
   late Animation<double> _headerFadeAnim;
 
-  // loaded from SharedPreferences
   String _storagePath = '';
   List<String> _subjects = [];
-  bool _isLoading = true;
+  int _totalPhotos = 0;
 
   bool _autoClassify = true;
   bool _showConfidence = true;
   bool _saveOriginal = false;
+  bool _notifications = true;
+  bool _isLoading = true;
 
   final String _appVersion = '1.0.0 (Build 1)';
-  final TextEditingController _newSubjectController = TextEditingController();
+  final TextEditingController _newSubjectController =
+      TextEditingController();
 
   final List<IconData> _subjectIcons = [
     Icons.calculate_rounded,
@@ -71,14 +71,23 @@ class _SettingsScreenState extends State<SettingsScreen>
     _loadData();
   }
 
-  // load subjects and path from SharedPreferences
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     final path = await StorageService.getBasePath();
     final subjects = await StorageService.getSubjects();
+
+    // Count total photos
+    int total = 0;
+    if (path != null) {
+      final counts = await StorageService.getSubjectPhotoCounts(
+          path, subjects);
+      total = counts.values.fold(0, (a, b) => a + b);
+    }
+
     setState(() {
       _storagePath = path ?? 'Not set';
       _subjects = subjects;
+      _totalPhotos = total;
       _isLoading = false;
     });
   }
@@ -90,66 +99,103 @@ class _SettingsScreenState extends State<SettingsScreen>
     super.dispose();
   }
 
-  // change storage path using file picker and save to prefs
+  // ── STORAGE PATH CHANGE ──────────────────────────────────────────
+
   Future<void> _changeStoragePath() async {
+    final hasPermission =
+        await PermissionService.requestStoragePermission();
+    if (!hasPermission) {
+      _showSnack('Storage permission required', isError: true);
+      return;
+    }
+
     final result = await FilePicker.platform.getDirectoryPath(
       dialogTitle: 'Choose new storage location',
     );
+
     if (result != null) {
       final newPath = '$result/LectureVault';
+
+      // Recreate all subject folders at new path
+      await StorageService.createAllSubjectFolders(
+          newPath, _subjects);
       await StorageService.saveBasePath(newPath);
+
       setState(() => _storagePath = newPath);
-      _showSnack('Storage location updated');
+      _showSnack('✓ Storage location updated');
     }
   }
 
-  // add new subject and save to prefs
+  // ── SUBJECT MANAGEMENT ───────────────────────────────────────────
+
   Future<void> _addSubject(String name) async {
     if (name.isEmpty || _subjects.contains(name)) return;
-    final updated = [..._subjects, name];
-    await StorageService.saveSubjects(updated);
-    setState(() => _subjects = updated);
-    _showSnack('Subject "$name" added');
+
+    final newSubjects = [..._subjects, name];
+    await StorageService.saveSubjects(newSubjects);
+
+    // Create the actual folder
+    if (_storagePath.isNotEmpty && _storagePath != 'Not set') {
+      await StorageService.createSubjectFolder(
+          _storagePath, name);
+    }
+
+    setState(() => _subjects = newSubjects);
+    _showSnack('✓ Subject "$name" added');
   }
 
-  // rename subject at index and save to prefs
   Future<void> _renameSubject(int index, String newName) async {
     if (newName.isEmpty || _subjects.contains(newName)) return;
-    final updated = [..._subjects];
-    updated[index] = newName;
-    await StorageService.saveSubjects(updated);
-    setState(() => _subjects = updated);
-    _showSnack('Renamed to "$newName"');
+
+    final newSubjects = [..._subjects];
+    newSubjects[index] = newName;
+    await StorageService.saveSubjects(newSubjects);
+
+    // Create new folder (old one stays, user can manage manually)
+    if (_storagePath.isNotEmpty && _storagePath != 'Not set') {
+      await StorageService.createSubjectFolder(
+          _storagePath, newName);
+    }
+
+    setState(() => _subjects = newSubjects);
+    _showSnack('✓ Renamed to "$newName"');
   }
 
-  // delete subject at index and save to prefs
   Future<void> _deleteSubject(int index) async {
     final name = _subjects[index];
-    final updated = [..._subjects]..removeAt(index);
-    await StorageService.saveSubjects(updated);
-    setState(() => _subjects = updated);
-    _showSnack('Subject "$name" removed');
+    final newSubjects = [..._subjects]..removeAt(index);
+    await StorageService.saveSubjects(newSubjects);
+    setState(() => _subjects = newSubjects);
+    _showSnack('Subject "$name" removed from list');
   }
 
-  // clear all prefs and go back to onboarding
   Future<void> _clearAllData() async {
-    await StorageService.clearAll();
+    await StorageService.saveSubjects([]);
+    await StorageService.saveBasePath('');
+    setState(() {
+      _subjects = [];
+      _storagePath = 'Not set';
+    });
+    _showSnack('✓ All data cleared');
+    // Go back to onboarding
     if (mounted) {
       Navigator.pushNamedAndRemoveUntil(
           context, '/onboarding', (route) => false);
     }
   }
 
+  // ── DIALOGS ──────────────────────────────────────────────────────
+
   void _showAddSubjectDialog() {
     _newSubjectController.clear();
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20)),
         title: const Text('Add Subject',
-            style:
-                TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            style: TextStyle(
+                fontWeight: FontWeight.bold, fontSize: 16)),
         content: TextField(
           controller: _newSubjectController,
           autofocus: true,
@@ -171,11 +217,13 @@ class _SettingsScreenState extends State<SettingsScreen>
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: Text('Cancel',
-                style: TextStyle(color: Colors.grey.shade600)),
+                style:
+                    TextStyle(color: Colors.grey.shade600)),
           ),
           ElevatedButton(
             onPressed: () {
-              final name = _newSubjectController.text.trim();
+              final name =
+                  _newSubjectController.text.trim();
               Navigator.pop(context);
               _addSubject(name);
             },
@@ -197,11 +245,11 @@ class _SettingsScreenState extends State<SettingsScreen>
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20)),
         title: const Text('Rename Subject',
-            style:
-                TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            style: TextStyle(
+                fontWeight: FontWeight.bold, fontSize: 16)),
         content: TextField(
           controller: _newSubjectController,
           autofocus: true,
@@ -222,11 +270,13 @@ class _SettingsScreenState extends State<SettingsScreen>
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: Text('Cancel',
-                style: TextStyle(color: Colors.grey.shade600)),
+                style:
+                    TextStyle(color: Colors.grey.shade600)),
           ),
           ElevatedButton(
             onPressed: () {
-              final name = _newSubjectController.text.trim();
+              final name =
+                  _newSubjectController.text.trim();
               Navigator.pop(context);
               _renameSubject(index, name);
             },
@@ -247,20 +297,22 @@ class _SettingsScreenState extends State<SettingsScreen>
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20)),
         title: const Text('Remove Subject',
-            style:
-                TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            style: TextStyle(
+                fontWeight: FontWeight.bold, fontSize: 16)),
         content: Text(
           'Remove "${_subjects[index]}" from your list? Photos inside will not be deleted.',
-          style: const TextStyle(fontSize: 13, color: Colors.grey),
+          style:
+              const TextStyle(fontSize: 13, color: Colors.grey),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: Text('Cancel',
-                style: TextStyle(color: Colors.grey.shade600)),
+                style:
+                    TextStyle(color: Colors.grey.shade600)),
           ),
           ElevatedButton(
             onPressed: () {
@@ -284,11 +336,11 @@ class _SettingsScreenState extends State<SettingsScreen>
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20)),
         title: const Text('Clear All Data',
-            style:
-                TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            style: TextStyle(
+                fontWeight: FontWeight.bold, fontSize: 16)),
         content: const Text(
           'This will reset the app completely. You will be taken back to setup. Your actual photo files will NOT be deleted.',
           style: TextStyle(fontSize: 13, color: Colors.grey),
@@ -297,7 +349,8 @@ class _SettingsScreenState extends State<SettingsScreen>
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: Text('Cancel',
-                style: TextStyle(color: Colors.grey.shade600)),
+                style:
+                    TextStyle(color: Colors.grey.shade600)),
           ),
           ElevatedButton(
             onPressed: () {
@@ -320,13 +373,16 @@ class _SettingsScreenState extends State<SettingsScreen>
   void _showSnack(String msg, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(msg),
-      backgroundColor:
-          isError ? const Color(0xFFE07A5F) : const Color(0xFF035955),
+      backgroundColor: isError
+          ? const Color(0xFFE07A5F)
+          : const Color(0xFF035955),
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12)),
     ));
   }
+
+  // ── BUILD ────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -335,7 +391,9 @@ class _SettingsScreenState extends State<SettingsScreen>
       body: Column(
         children: [
           FadeTransition(
-              opacity: _headerFadeAnim, child: _buildHeader()),
+            opacity: _headerFadeAnim,
+            child: _buildHeader(),
+          ),
           Expanded(
             child: _isLoading
                 ? const Center(
@@ -375,6 +433,8 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
+  // ── HEADER ───────────────────────────────────────────────────────
+
   Widget _buildHeader() {
     return Container(
       width: double.infinity,
@@ -408,8 +468,10 @@ class _SettingsScreenState extends State<SettingsScreen>
                         color: Colors.white.withOpacity(0.15),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Icon(Icons.arrow_back_rounded,
-                          color: Colors.white, size: 20),
+                      child: const Icon(
+                          Icons.arrow_back_rounded,
+                          color: Colors.white,
+                          size: 20),
                     ),
                   ),
                   const SizedBox(width: 14),
@@ -440,8 +502,11 @@ class _SettingsScreenState extends State<SettingsScreen>
                   _headerStatPill(Icons.folder_rounded,
                       '${_subjects.length}', 'Subjects'),
                   const SizedBox(width: 10),
-                  _headerStatPill(
-                      Icons.storage_rounded, 'Local', 'Storage'),
+                  _headerStatPill(Icons.photo_rounded,
+                      '$_totalPhotos', 'Photos'),
+                  const SizedBox(width: 10),
+                  _headerStatPill(Icons.storage_rounded,
+                      'Local', 'Storage'),
                 ],
               ),
             ],
@@ -451,7 +516,8 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-  Widget _headerStatPill(IconData icon, String value, String label) {
+  Widget _headerStatPill(
+      IconData icon, String value, String label) {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 10),
@@ -476,6 +542,8 @@ class _SettingsScreenState extends State<SettingsScreen>
       ),
     );
   }
+
+  // ── PROFILE CARD ─────────────────────────────────────────────────
 
   Widget _buildProfileCard() {
     return Padding(
@@ -525,8 +593,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                           fontSize: 16)),
                   SizedBox(height: 3),
                   Text('Your personal lecture organizer',
-                      style:
-                          TextStyle(color: Colors.grey, fontSize: 12)),
+                      style: TextStyle(
+                          color: Colors.grey, fontSize: 12)),
                 ],
               ),
             ),
@@ -534,7 +602,8 @@ class _SettingsScreenState extends State<SettingsScreen>
               padding: const EdgeInsets.symmetric(
                   horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
-                color: const Color(0xFF89B0AE).withOpacity(0.15),
+                color:
+                    const Color(0xFF89B0AE).withOpacity(0.15),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: const Text('v1.0.0',
@@ -549,11 +618,14 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
+  // ── SECTION HEADER ───────────────────────────────────────────────
+
   Widget _buildSectionHeader(String title, IconData icon) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+        padding: const EdgeInsets.symmetric(
+            horizontal: 18, vertical: 13),
         decoration: BoxDecoration(
           color: AppColors.headerCard,
           borderRadius: BorderRadius.circular(14),
@@ -598,59 +670,68 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
+  // ── STORAGE ──────────────────────────────────────────────────────
+
   Widget _buildStorageSection() {
     return _buildCard(
       Padding(
         padding: const EdgeInsets.all(16),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xFF035955).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.folder_open_rounded,
-                  color: Color(0xFF035955), size: 20),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Storage Location',
-                      style: TextStyle(
-                          color: AppColors.bodyText,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13)),
-                  const SizedBox(height: 3),
-                  Text(
-                    _storagePath.isEmpty || _storagePath == 'Not set'
-                        ? 'Not configured'
-                        : _storagePath,
-                    style: const TextStyle(
-                        color: Colors.grey, fontSize: 11),
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 2,
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF035955).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            // tapping change opens file picker and saves new path
-            GestureDetector(
-              onTap: _changeStoragePath,
-              child: const Text('Change',
-                  style: TextStyle(
-                      color: Color(0xFF89B0AE),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13)),
+                  child: const Icon(Icons.folder_open_rounded,
+                      color: Color(0xFF035955), size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Storage Location',
+                          style: TextStyle(
+                              color: AppColors.bodyText,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13)),
+                      const SizedBox(height: 3),
+                      Text(
+                        _storagePath.isEmpty ||
+                                _storagePath == 'Not set'
+                            ? 'Not configured'
+                            : _storagePath,
+                        style: const TextStyle(
+                            color: Colors.grey, fontSize: 11),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 2,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: _changeStoragePath,
+                  child: const Text('Change',
+                      style: TextStyle(
+                          color: Color(0xFF89B0AE),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13)),
+                ),
+              ],
             ),
           ],
         ),
       ),
     );
   }
+
+  // ── SUBJECTS ─────────────────────────────────────────────────────
 
   Widget _buildSubjectsSection() {
     return _buildCard(
@@ -661,14 +742,17 @@ class _SettingsScreenState extends State<SettingsScreen>
               padding: const EdgeInsets.all(20),
               child: Text('No subjects yet. Add one below!',
                   style: TextStyle(
-                      color: Colors.grey.shade500, fontSize: 13)),
+                      color: Colors.grey.shade500,
+                      fontSize: 13)),
             ),
           ..._subjects.asMap().entries.map((entry) {
             final index = entry.key;
             final subject = entry.value;
             final isLast = index == _subjects.length - 1;
-            final iconColor = _iconColors[index % _iconColors.length];
-            final icon = _subjectIcons[index % _subjectIcons.length];
+            final iconColor =
+                _iconColors[index % _iconColors.length];
+            final icon =
+                _subjectIcons[index % _subjectIcons.length];
             return Column(
               children: [
                 Padding(
@@ -680,10 +764,11 @@ class _SettingsScreenState extends State<SettingsScreen>
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
                           color: iconColor.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius:
+                              BorderRadius.circular(10),
                         ),
-                        child:
-                            Icon(icon, color: iconColor, size: 18),
+                        child: Icon(icon,
+                            color: iconColor, size: 18),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -693,7 +778,6 @@ class _SettingsScreenState extends State<SettingsScreen>
                                 fontWeight: FontWeight.w500,
                                 fontSize: 14)),
                       ),
-                      // rename button
                       GestureDetector(
                         onTap: () => _showRenameDialog(index),
                         child: Container(
@@ -701,14 +785,16 @@ class _SettingsScreenState extends State<SettingsScreen>
                           decoration: BoxDecoration(
                             color: const Color(0xFF035955)
                                 .withOpacity(0.08),
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius:
+                                BorderRadius.circular(8),
                           ),
-                          child: const Icon(Icons.edit_rounded,
-                              color: Color(0xFF035955), size: 15),
+                          child: const Icon(
+                              Icons.edit_rounded,
+                              color: Color(0xFF035955),
+                              size: 15),
                         ),
                       ),
                       const SizedBox(width: 8),
-                      // delete button
                       GestureDetector(
                         onTap: () =>
                             _showDeleteSubjectDialog(index),
@@ -717,7 +803,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                           decoration: BoxDecoration(
                             color: const Color(0xFFE07A5F)
                                 .withOpacity(0.08),
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius:
+                                BorderRadius.circular(8),
                           ),
                           child: const Icon(
                               Icons.delete_outline_rounded,
@@ -738,7 +825,6 @@ class _SettingsScreenState extends State<SettingsScreen>
             );
           }),
           const Divider(height: 1, color: Color(0xFFF0F0F0)),
-          // add subject button
           GestureDetector(
             onTap: _showAddSubjectDialog,
             child: Padding(
@@ -749,8 +835,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color:
-                          const Color(0xFF89B0AE).withOpacity(0.12),
+                      color: const Color(0xFF89B0AE)
+                          .withOpacity(0.12),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Icon(Icons.add_rounded,
@@ -771,6 +857,8 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
+  // ── CLASSIFICATION ───────────────────────────────────────────────
+
   Widget _buildClassificationSection() {
     return _buildCard(
       Column(
@@ -790,7 +878,8 @@ class _SettingsScreenState extends State<SettingsScreen>
             title: 'Show confidence score',
             subtitle: 'Display AI accuracy percentage',
             value: _showConfidence,
-            onChanged: (v) => setState(() => _showConfidence = v),
+            onChanged: (v) =>
+                setState(() => _showConfidence = v),
             showDivider: true,
           ),
           _buildToggleTile(
@@ -799,7 +888,8 @@ class _SettingsScreenState extends State<SettingsScreen>
             title: 'Keep original copy',
             subtitle: 'Save original before moving',
             value: _saveOriginal,
-            onChanged: (v) => setState(() => _saveOriginal = v),
+            onChanged: (v) =>
+                setState(() => _saveOriginal = v),
             showDivider: false,
           ),
         ],
@@ -869,6 +959,8 @@ class _SettingsScreenState extends State<SettingsScreen>
       ],
     );
   }
+
+  // ── ABOUT ────────────────────────────────────────────────────────
 
   Widget _buildAboutSection() {
     return _buildCard(
@@ -944,6 +1036,8 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
+  // ── DANGER ZONE ──────────────────────────────────────────────────
+
   Widget _buildDangerZone() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -969,11 +1063,14 @@ class _SettingsScreenState extends State<SettingsScreen>
                   Container(
                     padding: const EdgeInsets.all(6),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFE07A5F).withOpacity(0.1),
+                      color: const Color(0xFFE07A5F)
+                          .withOpacity(0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: const Icon(Icons.warning_amber_rounded,
-                        color: Color(0xFFE07A5F), size: 16),
+                    child: const Icon(
+                        Icons.warning_amber_rounded,
+                        color: Color(0xFFE07A5F),
+                        size: 16),
                   ),
                   const SizedBox(width: 10),
                   const Text('Danger Zone',
@@ -996,7 +1093,8 @@ class _SettingsScreenState extends State<SettingsScreen>
               leading: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFE07A5F).withOpacity(0.1),
+                  color:
+                      const Color(0xFFE07A5F).withOpacity(0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(Icons.delete_sweep_rounded,
@@ -1009,8 +1107,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                       fontSize: 13)),
               subtitle: const Text(
                   'Clear all settings and go back to setup',
-                  style:
-                      TextStyle(fontSize: 11, color: Colors.grey)),
+                  style: TextStyle(
+                      fontSize: 11, color: Colors.grey)),
               trailing: Icon(Icons.arrow_forward_ios_rounded,
                   size: 13,
                   color:

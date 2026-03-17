@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../core/constants/colors.dart';
 import '../../services/storage_service.dart';
+import '../../services/permission_service.dart';
 
 class FolderSetupScreen extends StatefulWidget {
   const FolderSetupScreen({super.key});
@@ -31,9 +32,28 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
   }
 
   Future<void> _browseFolder() async {
+    final hasPermission =
+        await PermissionService.requestStoragePermission();
+    if (!hasPermission) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+                'Storage permission required to choose folder'),
+            backgroundColor: const Color(0xFFE07A5F),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      }
+      return;
+    }
+
     final result = await FilePicker.platform.getDirectoryPath(
       dialogTitle: 'Choose where to save your lectures',
     );
+
     if (result != null) {
       setState(() => _selectedPath = '$result/LectureVault');
     }
@@ -41,39 +61,70 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
 
   Future<void> _continue() async {
     if (_selectedPath == null) {
-      _showSnack('Please choose a storage location', isError: true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Please choose a storage location'),
+          backgroundColor: const Color(0xFFE07A5F),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12)),
+        ),
+      );
       return;
     }
+
     if (_subjects.isEmpty) {
-      _showSnack('Please add at least one subject', isError: true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Please add at least one subject'),
+          backgroundColor: const Color(0xFFE07A5F),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12)),
+        ),
+      );
       return;
     }
 
     setState(() => _isCreating = true);
 
-    // ── REAL SAVE ────────────────────────────────────────────────
+    // Save to prefs
     await StorageService.saveBasePath(_selectedPath!);
     await StorageService.saveSubjects(_subjects);
-    await StorageService.markSetupDone();
-    // ────────────────────────────────────────────────────────────
+
+    // Create real folders on device
+    final success = await StorageService.createAllSubjectFolders(
+        _selectedPath!, _subjects);
 
     setState(() => _isCreating = false);
 
     if (mounted) {
-      _showSnack('✓ Setup complete! ${_subjects.length} subjects saved');
-      await Future.delayed(const Duration(milliseconds: 800));
-      Navigator.pushReplacementNamed(context, '/home');
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                '✓ Created ${_subjects.length} folders in $_selectedPath'),
+            backgroundColor: const Color(0xFF035955),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+        await Future.delayed(const Duration(milliseconds: 800));
+        Navigator.pushReplacementNamed(context, '/home');
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+                'Failed to create folders. Check permissions.'),
+            backgroundColor: const Color(0xFFE07A5F),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      }
     }
-  }
-
-  void _showSnack(String msg, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor:
-          isError ? const Color(0xFFE07A5F) : const Color(0xFF035955),
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-    ));
   }
 
   @override
@@ -99,7 +150,8 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
                   const SizedBox(height: 28),
                   _buildStorageSection(),
                   const SizedBox(height: 24),
-                  const Divider(thickness: 1, color: Color(0xFFE0E0E0)),
+                  const Divider(
+                      thickness: 1, color: Color(0xFFE0E0E0)),
                   const SizedBox(height: 24),
                   _buildSubjectSection(),
                 ],
@@ -122,7 +174,11 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
           bottomRight: Radius.circular(32),
         ),
         boxShadow: [
-          BoxShadow(color: Color(0x55035955), blurRadius: 18, offset: Offset(0, 6)),
+          BoxShadow(
+            color: Color(0x55035955),
+            blurRadius: 18,
+            offset: Offset(0, 6),
+          ),
         ],
       ),
       child: SafeArea(
@@ -133,17 +189,21 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: const Text('LectureVault',
-                    style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 1.2)),
+                child: const Text(
+                  'LectureVault',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.2,
+                  ),
+                ),
               ),
               const SizedBox(height: 14),
               Row(
@@ -154,22 +214,33 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
                       color: Colors.white.withOpacity(0.18),
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    child: const Icon(Icons.auto_awesome_rounded,
-                        color: Colors.white, size: 26),
+                    child: const Icon(
+                      Icons.auto_awesome_rounded,
+                      color: Colors.white,
+                      size: 26,
+                    ),
                   ),
                   const SizedBox(width: 14),
                   const Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Welcome to LectureVault',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold)),
+                        Text(
+                          'Welcome to LectureVault',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                         SizedBox(height: 4),
-                        Text('Let\'s set up your workspace',
-                            style: TextStyle(color: Colors.white70, fontSize: 14)),
+                        Text(
+                          'Let\'s set up your workspace',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 14,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -178,10 +249,11 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
               const SizedBox(height: 20),
               ClipRRect(
                 borderRadius: BorderRadius.circular(10),
-                child: const LinearProgressIndicator(
+                child: LinearProgressIndicator(
                   value: 0.5,
                   backgroundColor: Colors.white24,
-                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF89B0AE)),
+                  valueColor: const AlwaysStoppedAnimation<Color>(
+                      Color(0xFF89B0AE)),
                   minHeight: 5,
                 ),
               ),
@@ -196,7 +268,8 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
     return Row(
       children: [
         _stepDot(1, active: true),
-        Expanded(child: Container(height: 2, color: const Color(0xFF89B0AE))),
+        Expanded(
+            child: Container(height: 2, color: const Color(0xFF89B0AE))),
         _stepDot(2, active: false),
       ],
     );
@@ -215,15 +288,24 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
           width: 2,
         ),
         boxShadow: active
-            ? const [BoxShadow(color: Color(0x44035955), blurRadius: 8, offset: Offset(0, 2))]
+            ? [
+                const BoxShadow(
+                  color: Color(0x44035955),
+                  blurRadius: 8,
+                  offset: Offset(0, 2),
+                )
+              ]
             : [],
       ),
       child: Center(
-        child: Text('$step',
-            style: TextStyle(
-                color: active ? Colors.white : Colors.grey.shade500,
-                fontWeight: FontWeight.bold,
-                fontSize: active ? 14 : 12)),
+        child: Text(
+          '$step',
+          style: TextStyle(
+            color: active ? Colors.white : Colors.grey.shade500,
+            fontWeight: FontWeight.bold,
+            fontSize: active ? 14 : 12,
+          ),
+        ),
       ),
     );
   }
@@ -232,20 +314,26 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Choose Storage Location',
-            style: TextStyle(
-                color: AppColors.bodyText,
-                fontSize: 16,
-                fontWeight: FontWeight.bold)),
+        const Text(
+          'Choose Storage Location',
+          style: TextStyle(
+            color: AppColors.bodyText,
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         const SizedBox(height: 6),
-        const Text('Photos will be saved to this folder on your device',
-            style: TextStyle(color: Colors.grey, fontSize: 12)),
+        const Text(
+          'Photos will be saved to this folder on your device',
+          style: TextStyle(color: Colors.grey, fontSize: 12),
+        ),
         const SizedBox(height: 14),
         InkWell(
           onTap: _browseFolder,
           borderRadius: BorderRadius.circular(14),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            padding: const EdgeInsets.symmetric(
+                horizontal: 16, vertical: 14),
             decoration: BoxDecoration(
               border: Border.all(color: Colors.grey.shade300),
               borderRadius: BorderRadius.circular(14),
@@ -260,10 +348,11 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
                   child: Text(
                     _selectedPath ?? 'No folder selected',
                     style: TextStyle(
-                        color: _selectedPath != null
-                            ? AppColors.bodyText
-                            : Colors.grey,
-                        fontSize: 13),
+                      color: _selectedPath != null
+                          ? AppColors.bodyText
+                          : Colors.grey,
+                      fontSize: 13,
+                    ),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -274,13 +363,15 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
                     backgroundColor: const Color(0xFF89B0AE),
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                     padding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 10),
                     elevation: 0,
                   ),
                   child: const Text('Browse',
-                      style: TextStyle(fontWeight: FontWeight.w600)),
+                      style:
+                          TextStyle(fontWeight: FontWeight.w600)),
                 ),
               ],
             ),
@@ -296,29 +387,39 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
       children: [
         Row(
           children: [
-            const Text('Create Subject Folders',
-                style: TextStyle(
-                    color: AppColors.bodyText,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold)),
+            const Text(
+              'Create Subject Folders',
+              style: TextStyle(
+                color: AppColors.bodyText,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
             const SizedBox(width: 8),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
-                color: const Color(0xFF89B0AE).withOpacity(0.15),
+                color:
+                    const Color(0xFF89B0AE).withOpacity(0.15),
                 borderRadius: BorderRadius.circular(20),
               ),
-              child: Text('${_subjects.length}',
-                  style: const TextStyle(
-                      color: Color(0xFF89B0AE),
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold)),
+              child: Text(
+                '${_subjects.length}',
+                style: const TextStyle(
+                  color: Color(0xFF89B0AE),
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
           ],
         ),
         const SizedBox(height: 6),
-        const Text('Add subjects you are currently studying',
-            style: TextStyle(color: Colors.grey, fontSize: 12)),
+        const Text(
+          'Add subjects you are currently studying',
+          style: TextStyle(color: Colors.grey, fontSize: 12),
+        ),
         const SizedBox(height: 16),
         _subjects.isEmpty
             ? Container(
@@ -327,17 +428,21 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
                 decoration: BoxDecoration(
                   color: Colors.grey.shade50,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade200),
+                  border:
+                      Border.all(color: Colors.grey.shade200),
                 ),
                 child: const Center(
                   child: Text('No subjects yet. Add one below!',
-                      style: TextStyle(color: Colors.grey, fontSize: 13)),
+                      style: TextStyle(
+                          color: Colors.grey, fontSize: 13)),
                 ),
               )
             : Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: _subjects.map((s) => _buildSubjectChip(s)).toList(),
+                children: _subjects
+                    .map((s) => _buildSubjectChip(s))
+                    .toList(),
               ),
         const SizedBox(height: 16),
         Row(
@@ -349,19 +454,25 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
                 onSubmitted: (_) => _addSubject(),
                 decoration: InputDecoration(
                   hintText: 'New subject name...',
-                  hintStyle: const TextStyle(color: Colors.grey, fontSize: 13),
+                  hintStyle: const TextStyle(
+                      color: Colors.grey, fontSize: 13),
                   contentPadding: const EdgeInsets.symmetric(
                       horizontal: 16, vertical: 12),
                   border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: Colors.grey.shade300)),
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide:
+                        BorderSide(color: Colors.grey.shade300),
+                  ),
                   enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: Colors.grey.shade300)),
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide:
+                        BorderSide(color: Colors.grey.shade300),
+                  ),
                   focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(
-                          color: Color(0xFF89B0AE), width: 2)),
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(
+                        color: Color(0xFF89B0AE), width: 2),
+                  ),
                   filled: true,
                   fillColor: Colors.grey.shade50,
                 ),
@@ -374,13 +485,15 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
                 backgroundColor: const Color(0xFF89B0AE),
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 padding: const EdgeInsets.symmetric(
                     horizontal: 20, vertical: 14),
                 elevation: 0,
               ),
               child: const Text('ADD',
-                  style: TextStyle(fontWeight: FontWeight.bold)),
+                  style:
+                      TextStyle(fontWeight: FontWeight.bold)),
             ),
           ],
         ),
@@ -390,24 +503,32 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
 
   Widget _buildSubjectChip(String subject) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      padding:
+          const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
         color: const Color(0xFF89B0AE),
         borderRadius: BorderRadius.circular(30),
         boxShadow: const [
-          BoxShadow(color: Color(0x3389B0AE), blurRadius: 6, offset: Offset(0, 2)),
+          BoxShadow(
+            color: Color(0x3389B0AE),
+            blurRadius: 6,
+            offset: Offset(0, 2),
+          ),
         ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.folder_open_rounded, color: Colors.white, size: 14),
+          const Icon(Icons.folder_open_rounded,
+              color: Colors.white, size: 14),
           const SizedBox(width: 6),
-          Text(subject,
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600)),
+          Text(
+            subject,
+            style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600),
+          ),
           const SizedBox(width: 6),
           GestureDetector(
             onTap: () => _removeSubject(subject),
@@ -434,9 +555,10 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
         color: AppColors.background,
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withOpacity(0.06),
-              blurRadius: 10,
-              offset: const Offset(0, -4)),
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 10,
+            offset: const Offset(0, -4),
+          ),
         ],
       ),
       child: ElevatedButton(
@@ -444,20 +566,26 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.headerCard,
           foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           padding: const EdgeInsets.symmetric(vertical: 16),
           elevation: 2,
         ),
         child: _isCreating
             ? const SizedBox(
-                width: 22, height: 22,
+                width: 22,
+                height: 22,
                 child: CircularProgressIndicator(
-                    color: Colors.white, strokeWidth: 2.5))
+                    color: Colors.white, strokeWidth: 2.5),
+              )
             : const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text('Continue',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold)),
                   SizedBox(width: 8),
                   Icon(Icons.arrow_forward_rounded, size: 18),
                 ],
@@ -466,3 +594,4 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
     );
   }
 }
+

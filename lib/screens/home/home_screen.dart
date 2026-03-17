@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../core/constants/colors.dart';
 import '../../services/storage_service.dart';
 
@@ -17,26 +16,43 @@ class _HomeScreenState extends State<HomeScreen>
 
   int _selectedNavIndex = 0;
 
-  // loaded from SharedPreferenc
   List<String> _subjects = [];
   String? _basePath;
+  Map<String, int> _photoCounts = {};
+  int _totalPhotos = 0;
   bool _isLoading = true;
 
   final List<IconData> _subjectIcons = [
-    Icons.calculate_rounded, Icons.science_rounded, Icons.biotech_rounded,
-    Icons.history_edu_rounded, Icons.eco_rounded, Icons.menu_book_rounded,
-    Icons.public_rounded, Icons.computer_rounded, Icons.music_note_rounded,
-    Icons.palette_rounded, Icons.sports_soccer_rounded, Icons.psychology_rounded,
+    Icons.calculate_rounded,
+    Icons.science_rounded,
+    Icons.biotech_rounded,
+    Icons.history_edu_rounded,
+    Icons.eco_rounded,
+    Icons.menu_book_rounded,
+    Icons.public_rounded,
+    Icons.computer_rounded,
+    Icons.music_note_rounded,
+    Icons.palette_rounded,
+    Icons.sports_soccer_rounded,
+    Icons.psychology_rounded,
   ];
 
   final List<Color> _cardColors = [
-    const Color(0xFFE8F5F4), const Color(0xFFEAF0F6), const Color(0xFFF0EAF6),
-    const Color(0xFFF6F0EA), const Color(0xFFEAF6F0), const Color(0xFFF6EAF0),
+    const Color(0xFFE8F5F4),
+    const Color(0xFFEAF0F6),
+    const Color(0xFFF0EAF6),
+    const Color(0xFFF6F0EA),
+    const Color(0xFFEAF6F0),
+    const Color(0xFFF6EAF0),
   ];
 
   final List<Color> _iconColors = [
-    const Color(0xFF035955), const Color(0xFF4A90D9), const Color(0xFF9B59B6),
-    const Color(0xFFE07A5F), const Color(0xFF27AE60), const Color(0xFFE91E8C),
+    const Color(0xFF035955),
+    const Color(0xFF4A90D9),
+    const Color(0xFF9B59B6),
+    const Color(0xFFE07A5F),
+    const Color(0xFF27AE60),
+    const Color(0xFFE91E8C),
   ];
 
   @override
@@ -62,14 +78,32 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
+
     final subjects = await StorageService.getSubjects();
     final basePath = await StorageService.getBasePath();
+
+    if (basePath == null || subjects.isEmpty) {
+      setState(() {
+        _subjects = subjects;
+        _basePath = basePath;
+        _isLoading = false;
+      });
+      return;
+    }
+
+    final counts =
+        await StorageService.getSubjectPhotoCounts(basePath, subjects);
+    final total = counts.values.fold(0, (a, b) => a + b);
+
     setState(() {
       _subjects = subjects;
       _basePath = basePath;
+      _photoCounts = counts;
+      _totalPhotos = total;
       _isLoading = false;
     });
   }
+
   @override
   void dispose() {
     _fabAnimController.dispose();
@@ -89,7 +123,8 @@ class _HomeScreenState extends State<HomeScreen>
             Expanded(
               child: _isLoading
                   ? const Center(
-                      child: CircularProgressIndicator(color: AppColors.headerCard))
+                      child: CircularProgressIndicator(
+                          color: AppColors.headerCard))
                   : SingleChildScrollView(
                       physics: const AlwaysScrollableScrollPhysics(),
                       child: Column(
@@ -143,7 +178,10 @@ class _HomeScreenState extends State<HomeScreen>
           bottomRight: Radius.circular(28),
         ),
         boxShadow: [
-          BoxShadow(color: Color(0x55035955), blurRadius: 18, offset: Offset(0, 6)),
+          BoxShadow(
+              color: Color(0x55035955),
+              blurRadius: 18,
+              offset: Offset(0, 6)),
         ],
       ),
       child: SafeArea(
@@ -168,39 +206,50 @@ class _HomeScreenState extends State<HomeScreen>
                             color: Colors.white, size: 20),
                       ),
                       const SizedBox(width: 10),
-                      const Text('LectureVault',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 0.5)),
+                      const Text(
+                        'LectureVault',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
                     ],
                   ),
                   Row(
                     children: [
                       _headerIconButton(Icons.refresh_rounded, _loadData),
                       const SizedBox(width: 8),
-                      _headerIconButton(Icons.settings_outlined,
-                          () => Navigator.pushNamed(context, '/settings')
-                              .then((_) => _loadData())),
+                      _headerIconButton(
+                        Icons.settings_outlined,
+                        () => Navigator.pushNamed(context, '/settings')
+                            .then((_) => _loadData()),
+                      ),
                     ],
                   ),
                 ],
               ),
               const SizedBox(height: 20),
-              const Text('Good morning! 👋',
-                  style: TextStyle(color: Colors.white70, fontSize: 13)),
+              const Text(
+                'Hi',
+                style: TextStyle(color: Colors.white70, fontSize: 13),
+              ),
               const SizedBox(height: 4),
-              const Text('Ready to organize\nyour lectures?',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      height: 1.25)),
+              const Text(
+                'Ready to organize\nyour notes?',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  height: 1.25,
+                ),
+              ),
               const SizedBox(height: 18),
               if (_basePath != null)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(14),
@@ -211,10 +260,12 @@ class _HomeScreenState extends State<HomeScreen>
                           color: Colors.white70, size: 14),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: Text(_basePath!,
-                            style: const TextStyle(
-                                color: Colors.white60, fontSize: 11),
-                            overflow: TextOverflow.ellipsis),
+                        child: Text(
+                          _basePath!,
+                          style: const TextStyle(
+                              color: Colors.white60, fontSize: 11),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ],
                   ),
@@ -242,12 +293,18 @@ class _HomeScreenState extends State<HomeScreen>
 
   Widget _buildStatCards() {
     final stats = [
-      {'label': 'Total Photos', 'value': '0',
-        'icon': Icons.photo_library_rounded, 'color': const Color(0xFF035955)},
-      {'label': 'Subjects', 'value': '${_subjects.length}',
-        'icon': Icons.folder_rounded, 'color': const Color(0xFF89B0AE)},
-      {'label': 'Unclassified', 'value': '0',
-        'icon': Icons.help_outline_rounded, 'color': const Color(0xFFE07A5F)},
+      {
+        'label': 'Total Photos',
+        'value': '$_totalPhotos',
+        'icon': Icons.photo_library_rounded,
+        'color': const Color(0xFF035955),
+      },
+      {
+        'label': 'Subjects',
+        'value': '${_subjects.length}',
+        'icon': Icons.folder_rounded,
+        'color': const Color(0xFF89B0AE),
+      },
     ];
 
     return Padding(
@@ -259,13 +316,17 @@ class _HomeScreenState extends State<HomeScreen>
           return Expanded(
             child: Container(
               margin: EdgeInsets.only(right: isLast ? 0 : 10),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 12, vertical: 14),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: const Color(0xFFEEEEEE)),
                 boxShadow: const [
-                  BoxShadow(color: Color(0x0D000000), blurRadius: 8, offset: Offset(0, 2)),
+                  BoxShadow(
+                      color: Color(0x0D000000),
+                      blurRadius: 8,
+                      offset: Offset(0, 2)),
                 ],
               ),
               child: Column(
@@ -280,18 +341,23 @@ class _HomeScreenState extends State<HomeScreen>
                         color: s['color'] as Color, size: 18),
                   ),
                   const SizedBox(height: 8),
-                  Text(s['value'] as String,
-                      style: TextStyle(
-                          color: s['color'] as Color,
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold)),
+                  Text(
+                    s['value'] as String,
+                    style: TextStyle(
+                      color: s['color'] as Color,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   const SizedBox(height: 2),
-                  Text(s['label'] as String,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                          color: Colors.grey,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w500)),
+                  Text(
+                    s['label'] as String,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        color: Colors.grey,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500),
+                  ),
                 ],
               ),
             ),
@@ -305,24 +371,31 @@ class _HomeScreenState extends State<HomeScreen>
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
         decoration: BoxDecoration(
           color: AppColors.headerCard,
           borderRadius: BorderRadius.circular(14),
           boxShadow: const [
-            BoxShadow(color: Color(0x33035955), blurRadius: 8, offset: Offset(0, 3)),
+            BoxShadow(
+                color: Color(0x33035955),
+                blurRadius: 8,
+                offset: Offset(0, 3)),
           ],
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text('Your Subjects',
-                style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15)),
+            const Text(
+              'Your Subjects',
+              style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15),
+            ),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
                 color: Colors.white.withOpacity(0.2),
                 borderRadius: BorderRadius.circular(20),
@@ -330,7 +403,9 @@ class _HomeScreenState extends State<HomeScreen>
               child: Text(
                 '${_subjects.length} folder${_subjects.length != 1 ? 's' : ''}',
                 style: const TextStyle(
-                    color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600),
               ),
             ),
           ],
@@ -352,23 +427,30 @@ class _HomeScreenState extends State<HomeScreen>
           childAspectRatio: 1.1,
         ),
         itemCount: _subjects.length,
-        itemBuilder: (context, index) => _buildSubjectCard(index),
+        itemBuilder: (context, index) {
+          return _buildSubjectCard(index);
+        },
       ),
     );
   }
 
   Widget _buildSubjectCard(int index) {
     final subject = _subjects[index];
+    final count = _photoCounts[subject] ?? 0;
     final bgColor = _cardColors[index % _cardColors.length];
     final iconColor = _iconColors[index % _iconColors.length];
     final icon = _subjectIcons[index % _subjectIcons.length];
 
     return InkWell(
-      onTap: () => Navigator.pushNamed(context, '/folder', arguments: {
-        'folderName': subject,
-        'icon': icon,
-        'basePath': _basePath ?? '',
-      }).then((_) => _loadData()),
+      onTap: () => Navigator.pushNamed(
+        context,
+        '/folder',
+        arguments: {
+          'folderName': subject,
+          'icon': icon,
+          'basePath': _basePath,
+        },
+      ).then((_) => _loadData()),
       borderRadius: BorderRadius.circular(18),
       child: Container(
         padding: const EdgeInsets.all(16),
@@ -377,7 +459,10 @@ class _HomeScreenState extends State<HomeScreen>
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: const Color(0xFFEEEEEE)),
           boxShadow: const [
-            BoxShadow(color: Color(0x0A000000), blurRadius: 10, offset: Offset(0, 3)),
+            BoxShadow(
+                color: Color(0x0A000000),
+                blurRadius: 10,
+                offset: Offset(0, 3)),
           ],
         ),
         child: Column(
@@ -399,20 +484,27 @@ class _HomeScreenState extends State<HomeScreen>
               ],
             ),
             const Spacer(),
-            Text(subject,
-                style: const TextStyle(
-                    color: AppColors.bodyText,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis),
+            Text(
+              subject,
+              style: const TextStyle(
+                color: AppColors.bodyText,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
             const SizedBox(height: 4),
             Row(
               children: [
-                Icon(Icons.photo_outlined, size: 12, color: Colors.grey.shade400),
+                Icon(Icons.photo_outlined,
+                    size: 12, color: Colors.grey.shade400),
                 const SizedBox(width: 4),
-                Text('0 photos',
-                    style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),
+                Text(
+                  '$count photo${count != 1 ? 's' : ''}',
+                  style:
+                      TextStyle(color: Colors.grey.shade500, fontSize: 11),
+                ),
               ],
             ),
           ],
@@ -443,19 +535,24 @@ class _HomeScreenState extends State<HomeScreen>
                     fontWeight: FontWeight.bold,
                     fontSize: 18)),
             const SizedBox(height: 8),
-            Text('Go to Settings to add your first subject folder',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
+            Text(
+              'Go to Settings to add your first subject folder',
+              textAlign: TextAlign.center,
+              style:
+                  TextStyle(color: Colors.grey.shade500, fontSize: 13),
+            ),
             const SizedBox(height: 24),
             ElevatedButton.icon(
-              onPressed: () => Navigator.pushNamed(context, '/settings')
-                  .then((_) => _loadData()),
+              onPressed: () =>
+                  Navigator.pushNamed(context, '/settings')
+                      .then((_) => _loadData()),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.headerCard,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14)),
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 24, vertical: 12),
               ),
               icon: const Icon(Icons.settings_rounded, size: 18),
               label: const Text('Go to Settings',
@@ -472,13 +569,17 @@ class _HomeScreenState extends State<HomeScreen>
       decoration: const BoxDecoration(
         color: Colors.white,
         boxShadow: [
-          BoxShadow(color: Color(0x12000000), blurRadius: 12, offset: Offset(0, -3)),
+          BoxShadow(
+              color: Color(0x12000000),
+              blurRadius: 12,
+              offset: Offset(0, -3)),
         ],
       ),
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          padding: const EdgeInsets.symmetric(
+              horizontal: 20, vertical: 8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
@@ -508,7 +609,8 @@ class _HomeScreenState extends State<HomeScreen>
       },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         decoration: BoxDecoration(
           color: isSelected
               ? AppColors.headerCard.withOpacity(0.1)
@@ -519,17 +621,21 @@ class _HomeScreenState extends State<HomeScreen>
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon,
-                color: isSelected ? AppColors.headerCard : Colors.grey.shade400,
+                color: isSelected
+                    ? AppColors.headerCard
+                    : Colors.grey.shade400,
                 size: 24),
             const SizedBox(height: 3),
             Text(label,
                 style: TextStyle(
-                    color: isSelected
-                        ? AppColors.headerCard
-                        : Colors.grey.shade400,
-                    fontSize: 10,
-                    fontWeight:
-                        isSelected ? FontWeight.bold : FontWeight.normal)),
+                  color: isSelected
+                      ? AppColors.headerCard
+                      : Colors.grey.shade400,
+                  fontSize: 10,
+                  fontWeight: isSelected
+                      ? FontWeight.bold
+                      : FontWeight.normal,
+                )),
           ],
         ),
       ),
@@ -537,3 +643,4 @@ class _HomeScreenState extends State<HomeScreen>
   }
 }
 
+ 

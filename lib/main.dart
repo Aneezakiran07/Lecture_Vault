@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'core/constants/colors.dart';
 import 'screens/onboarding/folder_setup_screen.dart';
 import 'screens/home/home_screen.dart';
@@ -9,8 +10,16 @@ import 'services/storage_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // load .env before anything else so api key is available
+  await dotenv.load(fileName: '.env');
+
+  // check if user already completed onboarding
   final setupDone = await StorageService.isSetupDone();
-  runApp(LectureVaultApp(startRoute: setupDone ? '/home' : '/onboarding'));
+
+  runApp(LectureVaultApp(
+    startRoute: setupDone ? '/home' : '/onboarding',
+  ));
 }
 
 class LectureVaultApp extends StatelessWidget {
