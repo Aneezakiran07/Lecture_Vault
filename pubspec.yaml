@@ -42,6 +42,8 @@ dependencies:
   google_generative_ai: ^0.4.6
   flutter_dotenv: ^5.1.0
   flutter_exif_rotation: ^0.5.0
+  device_info_plus: ^10.0.0
+  share_plus: ^7.2.2
 
 dev_dependencies:
   flutter_test:

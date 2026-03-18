@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/constants/colors.dart';
 import '../../services/storage_service.dart';
-import '../image_viewer_screen.dart'; 
+import '../image_viewer_screen.dart';
 
 class FolderViewScreen extends StatefulWidget {
   final String folderName;
@@ -40,6 +40,9 @@ class _FolderViewScreenState extends State<FolderViewScreen>
   final Set<int> _selectedIds = {};
   bool get _isSelecting => _selectedIds.isNotEmpty;
 
+  String _folderName = '';
+  String _basePath = '';
+
   @override
   void initState() {
     super.initState();
@@ -57,7 +60,19 @@ class _FolderViewScreenState extends State<FolderViewScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _resolveArgs();
     _loadPhotos();
+  }
+
+  void _resolveArgs() {
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is Map) {
+      _folderName = args['folderName'] as String? ?? widget.folderName;
+      _basePath = args['basePath'] as String? ?? widget.basePath;
+    } else {
+      _folderName = widget.folderName;
+      _basePath = widget.basePath;
+    }
   }
 
   @override
@@ -69,23 +84,14 @@ class _FolderViewScreenState extends State<FolderViewScreen>
   Future<void> _loadPhotos() async {
     setState(() => _isLoading = true);
 
-    final args = ModalRoute.of(context)?.settings.arguments;
-    String folderName = widget.folderName;
-    String basePath = widget.basePath;
-
-    if (args is Map) {
-      folderName = args['folderName'] as String? ?? widget.folderName;
-      basePath = args['basePath'] as String? ?? widget.basePath;
-    }
-
-    if (basePath.isEmpty) {
+    if (_basePath.isEmpty) {
       setState(() => _isLoading = false);
       return;
     }
 
     final files = await StorageService.getPhotosInSubject(
-      basePath: basePath,
-      subject: folderName,
+      basePath: _basePath,
+      subject: _folderName,
     );
 
     final photoData = files.map((file) {
@@ -116,8 +122,8 @@ class _FolderViewScreenState extends State<FolderViewScreen>
       list.sort((a, b) =>
           (a['modified'] as DateTime).compareTo(b['modified'] as DateTime));
     } else if (_selectedSort == 'Name') {
-      list.sort((a, b) =>
-          (a['label'] as String).compareTo(b['label'] as String));
+      list.sort(
+          (a, b) => (a['label'] as String).compareTo(b['label'] as String));
     }
   }
 
@@ -161,7 +167,6 @@ class _FolderViewScreenState extends State<FolderViewScreen>
     });
   }
 
-  // opens full-screen viewer at the tapped photo, all photos in folder are swipeable
   void _openViewer(int index) {
     HapticFeedback.lightImpact();
     final paths = _photos.map((p) => p['path'] as String).toList();
@@ -189,7 +194,7 @@ class _FolderViewScreenState extends State<FolderViewScreen>
   }
 
   Future<void> _deleteSinglePhoto(String path) async {
-    Navigator.pop(context); // close bottom sheet
+    Navigator.pop(context);
     HapticFeedback.mediumImpact();
     await StorageService.deletePhoto(path);
     await _loadPhotos();
@@ -231,169 +236,303 @@ class _FolderViewScreenState extends State<FolderViewScreen>
         ),
       ),
     );
-  }void _showFolderMenu() {
-  showModalBottomSheet(
-    context: context,
-    backgroundColor: Colors.transparent,
-    builder: (_) => Container(
-      margin: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 40,
-            height: 4,
-            margin: const EdgeInsets.only(top: 12, bottom: 16),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade300,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          _sheetTile(Icons.refresh_rounded, 'Refresh',
-              const Color(0xFF035955), () {
-            Navigator.pop(context);
-            _loadPhotos();
-          }),
-          _sheetTile(Icons.delete_outline_rounded, 'Delete Folder',
-              const Color(0xFFE07A5F), () {
-            Navigator.pop(context); // close bottom sheet first
-            _showDeleteFolderDialog();
-          }),
-          const SizedBox(height: 16),
-        ],
-      ),
-    ),
-  );
-}
-
-void _showDeleteFolderDialog() {
-  final args = ModalRoute.of(context)?.settings.arguments;
-  String folderName = widget.folderName;
-  String basePath = widget.basePath;
-
-  if (args is Map) {
-    folderName = args['folderName'] as String? ?? widget.folderName;
-    basePath = args['basePath'] as String? ?? widget.basePath;
   }
 
-  showDialog(
-    context: context,
-    builder: (_) => AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      title: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: const Color(0xFFE07A5F).withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Icon(Icons.warning_amber_rounded,
-                color: Color(0xFFE07A5F), size: 20),
-          ),
-          const SizedBox(width: 10),
-          const Text('Delete Folder',
-              style:
-                  TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-        ],
-      ),
-      content: RichText(
-        text: TextSpan(
-          style: const TextStyle(fontSize: 13, color: Colors.grey, height: 1.5),
+  void _showFolderMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        margin: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            const TextSpan(text: 'This will permanently delete '),
-            TextSpan(
-              text: '"$folderName"',
-              style: const TextStyle(
-                  color: Color(0xFFE07A5F), fontWeight: FontWeight.bold),
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(top: 12, bottom: 16),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
-            const TextSpan(
-                text: ' and ALL photos inside it from your device.\n\n'),
-            const TextSpan(
-              text: '⚠️ This cannot be undone.',
-              style: TextStyle(
-                  fontWeight: FontWeight.bold, color: Colors.black87),
-            ),
+            _sheetTile(Icons.refresh_rounded, 'Refresh',
+                const Color(0xFF035955), () {
+              Navigator.pop(context);
+              _loadPhotos();
+            }),
+            if (_folderName != 'Unclassified')
+              _sheetTile(Icons.delete_outline_rounded, 'Delete Folder',
+                  const Color(0xFFE07A5F), () {
+                Navigator.pop(context);
+                _showDeleteFolderDialog();
+              }),
+            const SizedBox(height: 16),
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text('Cancel',
-              style: TextStyle(color: Colors.grey.shade600)),
+    );
+  }
+
+  // DELETE FOLDER DIALOG 
+  void _showDeleteFolderDialog() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE07A5F).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.warning_amber_rounded,
+                  color: Color(0xFFE07A5F), size: 20),
+            ),
+            const SizedBox(width: 10),
+            const Text('Delete Folder',
+                style:
+                    TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          ],
         ),
-        ElevatedButton(
-          onPressed: () async {
-            Navigator.pop(context); // close dialog
-            await _deleteFolder(folderName, basePath);
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFFE07A5F),
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10)),
+        content: RichText(
+          text: TextSpan(
+            style: const TextStyle(
+                fontSize: 13, color: Colors.grey, height: 1.5),
+            children: [
+              const TextSpan(text: 'What would you like to do with '),
+              TextSpan(
+                text: '"$_folderName"',
+                style: const TextStyle(
+                    color: Color(0xFFE07A5F),
+                    fontWeight: FontWeight.bold),
+              ),
+              const TextSpan(text: '?'),
+            ],
           ),
-          child: const Text('Delete Everything'),
         ),
-      ],
-    ),
-  );
-}
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Cancel',
+                style: TextStyle(color: Colors.grey.shade600)),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _deleteFolderFromAppOnly();
+            },
+            child: const Text('Remove from app only',
+                style: TextStyle(color: Color(0xFF4A90D9))),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _deleteFolderWithPhotos();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE07A5F),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('Delete everything'),
+          ),
+        ],
+      ),
+    );
+  }
 
-Future<void> _deleteFolder(String folderName, String basePath) async {
-  try {
-    final folderPath = '$basePath/$folderName';
-    final dir = Directory(folderPath);
-    if (await dir.exists()) {
-      await dir.delete(recursive: true);
-    }
-
-    // also remove from subjects list in prefs
+  Future<void> _deleteFolderFromAppOnly() async {
     final subjects = await StorageService.getSubjects();
-    final updated = subjects.where((s) => s != folderName).toList();
+    final updated = subjects.where((s) => s != _folderName).toList();
     await StorageService.saveSubjects(updated);
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('✓ "$folderName" deleted'),
+          content: Text(
+              '✓ "$_folderName" removed from app. Files kept on device.'),
           backgroundColor: const Color(0xFF035955),
           behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12)),
         ),
       );
-      // go back to home since folder no longer exists
       Navigator.pushNamedAndRemoveUntil(
           context, '/home', (route) => false);
     }
-  } catch (e) {
+  }
+
+  Future<void> _deleteFolderWithPhotos() async {
+    try {
+      final folderPath = '$_basePath/$_folderName';
+      final dir = Directory(folderPath);
+      if (await dir.exists()) {
+        await dir.delete(recursive: true);
+      }
+
+      final subjects = await StorageService.getSubjects();
+      final updated = subjects.where((s) => s != _folderName).toList();
+      await StorageService.saveSubjects(updated);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✓ "$_folderName" and all photos deleted'),
+            backgroundColor: const Color(0xFF035955),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+        Navigator.pushNamedAndRemoveUntil(
+            context, '/home', (route) => false);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Failed to delete folder'),
+            backgroundColor: const Color(0xFFE07A5F),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      }
+    }
+  }
+
+  // MOVE TO FOLDER (Unclassified only
+
+  void _showMoveSelectedDialog() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => FutureBuilder<List<String>>(
+        future: StorageService.getSubjects(),
+        builder: (context, snapshot) {
+          final allSubjects = snapshot.data ?? [];
+         final destinations = allSubjects.where((s) => s != _folderName).toList();
+
+          return Container(
+            margin: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(top: 12, bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(20, 0, 20, 12),
+                  child: Text('Move to folder',
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 16)),
+                ),
+                if (destinations.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Text(
+                      'No other folders available. Add subjects in Settings first.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: Colors.grey.shade500, fontSize: 13),
+                    ),
+                  )
+                else
+                  ...destinations.map((subject) => _sheetTile(
+                        Icons.folder_rounded,
+                        subject,
+                        const Color(0xFF035955),
+                        () async {
+                          Navigator.pop(context);
+                          await _moveSelectedToFolder(subject);
+                        },
+                      )),
+                const SizedBox(height: 16),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _moveSelectedToFolder(String targetSubject) async {
+    HapticFeedback.mediumImpact();
+    final toMove =
+        _photos.where((p) => _selectedIds.contains(p['id'])).toList();
+
+    int moved = 0;
+    int failed = 0;
+
+    for (final photo in toMove) {
+      final result = await StorageService.movePhotoToSubject(
+        sourcePath: photo['path'] as String,
+        basePath: _basePath,
+        newSubject: targetSubject,
+      );
+      if (result != null) {
+        moved++;
+      } else {
+        failed++;
+      }
+    }
+
+    setState(() => _selectedIds.clear());
+    await _loadPhotos();
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Failed to delete folder'),
-          backgroundColor: const Color(0xFFE07A5F),
+          content: Text(failed == 0
+              ? '✓ $moved photo${moved > 1 ? 's' : ''} moved to $targetSubject'
+              : '$moved moved, $failed failed'),
+          backgroundColor: failed == 0
+              ? const Color(0xFF035955)
+              : const Color(0xFFE07A5F),
           behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12)),
         ),
       );
     }
   }
-}
+
+  // ── BUILD ────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     final args = ModalRoute.of(context)?.settings.arguments;
-    String displayName = widget.folderName;
+    String displayName =
+        _folderName.isEmpty ? widget.folderName : _folderName;
     IconData displayIcon = widget.folderIcon;
     if (args is Map) {
       displayName = args['folderName'] as String? ?? widget.folderName;
       displayIcon = args['icon'] as IconData? ?? widget.folderIcon;
+    }
+
+    if (displayName == 'Unclassified') {
+      displayIcon = Icons.help_outline_rounded;
     }
 
     return Scaffold(
@@ -441,6 +580,8 @@ Future<void> _deleteFolder(String folderName, String basePath) async {
             ),
     );
   }
+
+  // ── HEADER ───────────────────────────────────────────────────────
 
   Widget _buildHeader(String displayName, IconData displayIcon) {
     return Container(
@@ -527,7 +668,8 @@ Future<void> _deleteFolder(String folderName, String basePath) async {
                       color: Colors.white.withOpacity(0.18),
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    child: Icon(displayIcon, color: Colors.white, size: 28),
+                    child:
+                        Icon(displayIcon, color: Colors.white, size: 28),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -590,6 +732,8 @@ Future<void> _deleteFolder(String folderName, String basePath) async {
       ),
     );
   }
+
+  // ── FILTER ROW ───────────────────────────────────────────────────
 
   Widget _buildFilterRow() {
     return Padding(
@@ -663,6 +807,8 @@ Future<void> _deleteFolder(String folderName, String basePath) async {
     );
   }
 
+  // ── PHOTO GRID ───────────────────────────────────────────────────
+
   Widget _buildPhotoGrid() {
     return GridView.builder(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
@@ -674,7 +820,8 @@ Future<void> _deleteFolder(String folderName, String basePath) async {
         childAspectRatio: 0.85,
       ),
       itemCount: _photos.length,
-      itemBuilder: (context, index) => _buildPhotoCard(_photos[index], index),
+      itemBuilder: (context, index) =>
+          _buildPhotoCard(_photos[index], index),
     );
   }
 
@@ -685,7 +832,6 @@ Future<void> _deleteFolder(String folderName, String basePath) async {
         if (_isSelecting) {
           _toggleSelect(photo['id'] as int);
         } else {
-          // FIX: tap opens full-screen viewer
           _openViewer(index);
         }
       },
@@ -751,7 +897,8 @@ Future<void> _deleteFolder(String folderName, String basePath) async {
                       const SizedBox(height: 3),
                       Text(photo['date'] as String,
                           style: TextStyle(
-                              color: Colors.grey.shade500, fontSize: 10)),
+                              color: Colors.grey.shade500,
+                              fontSize: 10)),
                     ],
                   ),
                 ),
@@ -764,7 +911,8 @@ Future<void> _deleteFolder(String folderName, String basePath) async {
                 child: Container(
                   padding: const EdgeInsets.all(3),
                   decoration: const BoxDecoration(
-                      color: Color(0xFF89B0AE), shape: BoxShape.circle),
+                      color: Color(0xFF89B0AE),
+                      shape: BoxShape.circle),
                   child: const Icon(Icons.check_rounded,
                       color: Colors.white, size: 14),
                 ),
@@ -792,6 +940,8 @@ Future<void> _deleteFolder(String folderName, String basePath) async {
     );
   }
 
+  // ── PHOTO LIST ───────────────────────────────────────────────────
+
   Widget _buildPhotoList() {
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
@@ -805,7 +955,6 @@ Future<void> _deleteFolder(String folderName, String basePath) async {
             if (_isSelecting) {
               _toggleSelect(photo['id'] as int);
             } else {
-              // FIX: tap opens full-screen viewer in list view too
               _openViewer(index);
             }
           },
@@ -863,7 +1012,8 @@ Future<void> _deleteFolder(String folderName, String basePath) async {
                       const SizedBox(height: 4),
                       Text(photo['date'] as String,
                           style: TextStyle(
-                              color: Colors.grey.shade500, fontSize: 11)),
+                              color: Colors.grey.shade500,
+                              fontSize: 11)),
                     ],
                   ),
                 ),
@@ -883,6 +1033,8 @@ Future<void> _deleteFolder(String folderName, String basePath) async {
       },
     );
   }
+
+  // ── EMPTY STATE ──────────────────────────────────────────────────
 
   Widget _buildEmptyState() {
     return Center(
@@ -935,72 +1087,98 @@ Future<void> _deleteFolder(String folderName, String basePath) async {
   }
 
   Widget _buildSelectionBar() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 12,
-              offset: const Offset(0, -4)),
-        ],
-      ),
-      child: Row(
-        children: [
-          GestureDetector(
-            onTap: () {
-              HapticFeedback.lightImpact();
-              setState(() => _selectedIds.clear());
-            },
-            child: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.close_rounded,
-                  color: Colors.grey, size: 20),
+  return Container(
+    padding: EdgeInsets.fromLTRB(
+        20, 12, 20, MediaQuery.of(context).padding.bottom + 12),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      boxShadow: [
+        BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 12,
+            offset: const Offset(0, -4)),
+      ],
+    ),
+    child: Row(
+      children: [
+        GestureDetector(
+          onTap: () {
+            HapticFeedback.lightImpact();
+            setState(() => _selectedIds.clear());
+          },
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.close_rounded,
+                color: Colors.grey, size: 20),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text('${_selectedIds.length} selected',
+              style: const TextStyle(
+                  color: AppColors.bodyText,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15)),
+        ),
+        GestureDetector(
+          onTap: _showMoveSelectedDialog,
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+                horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFF035955).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                  color: const Color(0xFF035955).withOpacity(0.3)),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.drive_file_move_rounded,
+                    color: Color(0xFF035955), size: 16),
+                SizedBox(width: 6),
+                Text('Move',
+                    style: TextStyle(
+                        color: Color(0xFF035955),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13)),
+              ],
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text('${_selectedIds.length} selected',
-                style: const TextStyle(
-                    color: AppColors.bodyText,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15)),
-          ),
-          GestureDetector(
-            onTap: _deleteSelected,
-            child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE07A5F).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                    color: const Color(0xFFE07A5F).withOpacity(0.3)),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.delete_outline_rounded,
-                      color: Color(0xFFE07A5F), size: 16),
-                  SizedBox(width: 6),
-                  Text('Delete',
-                      style: TextStyle(
-                          color: Color(0xFFE07A5F),
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13)),
-                ],
-              ),
+        ),
+        const SizedBox(width: 8),
+        GestureDetector(
+          onTap: _deleteSelected,
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+                horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE07A5F).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                  color: const Color(0xFFE07A5F).withOpacity(0.3)),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.delete_outline_rounded,
+                    color: Color(0xFFE07A5F), size: 16),
+                SizedBox(width: 6),
+                Text('Delete',
+                    style: TextStyle(
+                        color: Color(0xFFE07A5F),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13)),
+              ],
             ),
           ),
-        ],
-      ),
-    );
-  }
-
+        ),
+      ],
+    ),
+  );
+}
   Widget _buildBottomSheet(Map<String, dynamic> photo) {
     return Container(
       margin: const EdgeInsets.all(16),
@@ -1062,17 +1240,26 @@ Future<void> _deleteFolder(String folderName, String basePath) async {
           const SizedBox(height: 16),
           const Divider(height: 1),
           const SizedBox(height: 8),
-          // FIX: "Open" option added to bottom sheet
           _sheetTile(Icons.open_in_full_rounded, 'Open',
               const Color(0xFF035955), () {
-            Navigator.pop(context); // close sheet first
+            Navigator.pop(context);
             final index =
                 _photos.indexWhere((p) => p['path'] == photo['path']);
-            if (index != -1) _openViewer(index);
+            if (index != -1) _openViewer(index);  
           }),
+          // Move to folder — only in Unclassified
+          _sheetTile(Icons.drive_file_move_rounded, 'Move to folder',
+              const Color(0xFF89B0AE), () {
+            Navigator.pop(context);
+            setState(() => _selectedIds.add(photo['id'] as int));
+            _showMoveSelectedDialog();
+          }),
+
           _sheetTile(Icons.share_rounded, 'Share',
               const Color(0xFF4A90D9), () => Navigator.pop(context)),
-          _sheetTile(Icons.delete_outline_rounded, 'Delete',
+          _sheetTile(
+              Icons.delete_outline_rounded,
+              'Delete',
               const Color(0xFFE07A5F),
               () => _deleteSinglePhoto(photo['path'] as String)),
           const SizedBox(height: 16),

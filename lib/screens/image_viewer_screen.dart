@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 class ImageViewerScreen extends StatefulWidget {
   final List<String> imagePaths;
@@ -23,8 +24,12 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
   late PageController _pageController;
   late int _currentIndex;
   bool _showControls = true;
+  bool _isZoomed = false;
   late AnimationController _fadeController;
   late Animation<double> _fadeAnim;
+
+  // one controller per page so zoom state is independent per photo
+  late List<TransformationController> _transformControllers;
 
   @override
   void initState() {
@@ -32,14 +37,20 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
     _currentIndex = widget.initialIndex;
     _pageController = PageController(initialPage: widget.initialIndex);
 
+    // create a TransformationController for each image
+    _transformControllers = List.generate(
+      widget.imagePaths.length,
+      (_) => TransformationController(),
+    );
+
     _fadeController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 200),
     );
-    _fadeAnim = CurvedAnimation(parent: _fadeController, curve: Curves.easeOut);
+    _fadeAnim =
+        CurvedAnimation(parent: _fadeController, curve: Curves.easeOut);
     _fadeController.forward();
 
-    // hide system UI for immersive feel
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
 
@@ -47,13 +58,23 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
   void dispose() {
     _pageController.dispose();
     _fadeController.dispose();
-    // restore system UI
+    for (final c in _transformControllers) {
+      c.dispose();
+    }
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
 
   void _toggleControls() {
-    setState(() => _showControls = !_showControls);
+    // only toggle controls when not zoomed
+    if (!_isZoomed) {
+      setState(() => _showControls = !_showControls);
+    }
+  }
+
+  void _resetZoom(int index) {
+    _transformControllers[index].value = Matrix4.identity();
+    setState(() => _isZoomed = false);
   }
 
   @override
@@ -62,24 +83,78 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // swipeable photo pages
+          // SWIPEABLE PHOTO PAGES 
           PageView.builder(
             controller: _pageController,
+            physics: _isZoomed
+                ? const NeverScrollableScrollPhysics()
+                : const PageScrollPhysics(),
             itemCount: widget.imagePaths.length,
             onPageChanged: (i) {
               HapticFeedback.selectionClick();
+              // reset zoom on previous page when swiping
+              _resetZoom(_currentIndex);
               setState(() => _currentIndex = i);
             },
             itemBuilder: (context, index) {
               return GestureDetector(
                 onTap: _toggleControls,
+                onDoubleTapDown: (details) {
+                  final controller = _transformControllers[index];
+                  if (controller.value != Matrix4.identity()) {
+                    // zoom out
+                    controller.value = Matrix4.identity();
+                    setState(() => _isZoomed = false);
+                  } else {
+                    // zoom in to tapped position
+                    final position = details.localPosition;
+                    controller.value = Matrix4.identity()
+                      ..translate(-position.dx * 2, -position.dy * 2)
+                      ..scale(3.0);
+                    setState(() => _isZoomed = true);
+                  }
+                },
                 child: Center(
                   child: InteractiveViewer(
+                    transformationController:
+                        _transformControllers[index],
                     minScale: 0.8,
                     maxScale: 5.0,
+                    scaleEnabled: true,
+                    panEnabled: true,
+                    // allow panning beyond bounds for smooth feel
+                    boundaryMargin:
+                        const EdgeInsets.all(double.infinity),
+                    onInteractionStart: (_) {
+                      // show controls when interaction starts
+                      if (!_showControls) {
+                        setState(() => _showControls = true);
+                      }
+                    },
+                    onInteractionUpdate: (details) {
+                      final scale = _transformControllers[index]
+                          .value
+                          .getMaxScaleOnAxis();
+                      final zoomed = scale > 1.05;
+                      if (zoomed != _isZoomed) {
+                        setState(() => _isZoomed = zoomed);
+                      }
+                    },
+                    onInteractionEnd: (_) {
+                      // if fully zoomed out snap back cleanly
+                      final scale = _transformControllers[index]
+                          .value
+                          .getMaxScaleOnAxis();
+                      if (scale < 1.0) {
+                        _transformControllers[index].value =
+                            Matrix4.identity();
+                        setState(() => _isZoomed = false);
+                      }
+                    },
                     child: Image.file(
                       File(widget.imagePaths[index]),
                       fit: BoxFit.contain,
+                      filterQuality: FilterQuality.high,
                       errorBuilder: (_, __, ___) => const Center(
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
@@ -88,7 +163,8 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
                                 color: Colors.white38, size: 64),
                             SizedBox(height: 12),
                             Text('Image not found',
-                                style: TextStyle(color: Colors.white38)),
+                                style:
+                                    TextStyle(color: Colors.white38)),
                           ],
                         ),
                       ),
@@ -99,7 +175,6 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
             },
           ),
 
-          // top bar — back button + title + counter
           AnimatedOpacity(
             opacity: _showControls ? 1.0 : 0.0,
             duration: const Duration(milliseconds: 200),
@@ -133,6 +208,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
                         ),
                       ),
                       const SizedBox(width: 12),
+                      // title
                       Expanded(
                         child: Text(
                           widget.title ??
@@ -163,6 +239,26 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
                                 fontWeight: FontWeight.bold),
                           ),
                         ),
+                      const SizedBox(width: 8),
+                      // share button
+                      GestureDetector(
+                        onTap: () {
+                          HapticFeedback.lightImpact();
+                          Share.shareXFiles(
+                            [XFile(widget.imagePaths[_currentIndex])],
+                            text: 'Shared from LectureVault',
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.share_rounded,
+                              color: Colors.white, size: 20),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -170,7 +266,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
             ),
           ),
 
-          // bottom dots indicator (only when multiple images)
+          //  BOTTOM DOTS INDICATOR
           if (widget.imagePaths.length > 1)
             AnimatedOpacity(
               opacity: _showControls ? 1.0 : 0.0,
@@ -185,7 +281,8 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
                       widget.imagePaths.length.clamp(0, 20),
                       (i) => AnimatedContainer(
                         duration: const Duration(milliseconds: 200),
-                        margin: const EdgeInsets.symmetric(horizontal: 3),
+                        margin:
+                            const EdgeInsets.symmetric(horizontal: 3),
                         width: _currentIndex == i ? 18 : 6,
                         height: 6,
                         decoration: BoxDecoration(

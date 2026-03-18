@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../core/constants/colors.dart';
@@ -22,11 +23,9 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   bool _autoClassify = true;
   bool _showConfidence = true;
-  bool _saveOriginal = false;
   bool _isLoading = true;
 
-  final TextEditingController _newSubjectController =
-      TextEditingController();
+  final TextEditingController _newSubjectController = TextEditingController();
 
   final List<IconData> _subjectIcons = [
     Icons.calculate_rounded,
@@ -69,28 +68,28 @@ class _SettingsScreenState extends State<SettingsScreen>
     _loadData();
   }
 
-Future<void> _loadData() async {
-  setState(() => _isLoading = true);
-  final path = await StorageService.getBasePath();
-  final subjects = await StorageService.getSubjects();
-  final classSettings = await StorageService.getClassificationSettings(); // ADD
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    final path = await StorageService.getBasePath();
+    final subjects = await StorageService.getSubjects();
+    final classSettings = await StorageService.getClassificationSettings();
 
-  int total = 0;
-  if (path != null) {
-    final counts = await StorageService.getSubjectPhotoCounts(path, subjects);
-    total = counts.values.fold(0, (a, b) => a + b);
+    int total = 0;
+    if (path != null) {
+      final counts =
+          await StorageService.getSubjectPhotoCounts(path, subjects);
+      total = counts.values.fold(0, (a, b) => a + b);
+    }
+
+    setState(() {
+      _storagePath = path ?? 'Not set';
+      _subjects = subjects;
+      _totalPhotos = total;
+      _autoClassify = classSettings['autoClassify']!;
+      _showConfidence = classSettings['showConfidence']!;
+      _isLoading = false;
+    });
   }
-
-  setState(() {
-    _storagePath = path ?? 'Not set';
-    _subjects = subjects;
-    _totalPhotos = total;
-    _autoClassify = classSettings['autoClassify']!;       // ADD
-    _showConfidence = classSettings['showConfidence']!;   // ADD
-    _saveOriginal = classSettings['saveOriginal']!;       // ADD
-    _isLoading = false;
-  });
-}
 
   @override
   void dispose() {
@@ -98,6 +97,8 @@ Future<void> _loadData() async {
     _newSubjectController.dispose();
     super.dispose();
   }
+
+  // ── STORAGE PATH CHANGE ──────────────────────────────────────────
 
   Future<void> _changeStoragePath() async {
     final hasPermission =
@@ -113,57 +114,60 @@ Future<void> _loadData() async {
 
     if (result != null) {
       final newPath = '$result/LectureVault';
-
-      // Recreate all subject folders at new path
-      await StorageService.createAllSubjectFolders(
-          newPath, _subjects);
+      await StorageService.createAllSubjectFolders(newPath, _subjects);
       await StorageService.saveBasePath(newPath);
-
       setState(() => _storagePath = newPath);
       _showSnack('✓ Storage location updated');
     }
   }
 
+  // ── SUBJECT MANAGEMENT ───────────────────────────────────────────
 
   Future<void> _addSubject(String name) async {
     if (name.isEmpty || _subjects.contains(name)) return;
-
     final newSubjects = [..._subjects, name];
     await StorageService.saveSubjects(newSubjects);
-
-    // Create the actual folder
     if (_storagePath.isNotEmpty && _storagePath != 'Not set') {
-      await StorageService.createSubjectFolder(
-          _storagePath, name);
+      await StorageService.createSubjectFolder(_storagePath, name);
     }
-
     setState(() => _subjects = newSubjects);
     _showSnack('✓ Subject "$name" added');
   }
 
   Future<void> _renameSubject(int index, String newName) async {
     if (newName.isEmpty || _subjects.contains(newName)) return;
-
     final newSubjects = [..._subjects];
     newSubjects[index] = newName;
     await StorageService.saveSubjects(newSubjects);
-
-    // Create new folder (old one stays, user can manage manually)
     if (_storagePath.isNotEmpty && _storagePath != 'Not set') {
-      await StorageService.createSubjectFolder(
-          _storagePath, newName);
+      await StorageService.createSubjectFolder(_storagePath, newName);
     }
-
     setState(() => _subjects = newSubjects);
     _showSnack('✓ Renamed to "$newName"');
   }
 
-  Future<void> _deleteSubject(int index) async {
+  Future<void> _deleteSubjectFromListOnly(int index) async {
     final name = _subjects[index];
     final newSubjects = [..._subjects]..removeAt(index);
     await StorageService.saveSubjects(newSubjects);
     setState(() => _subjects = newSubjects);
     _showSnack('Subject "$name" removed from list');
+  }
+
+  Future<void> _deleteSubjectWithFolder(int index) async {
+    final name = _subjects[index];
+    try {
+      if (_storagePath.isNotEmpty && _storagePath != 'Not set') {
+        final dir = Directory('$_storagePath/$name');
+        if (await dir.exists()) {
+          await dir.delete(recursive: true);
+        }
+      }
+    } catch (_) {}
+    final newSubjects = [..._subjects]..removeAt(index);
+    await StorageService.saveSubjects(newSubjects);
+    setState(() => _subjects = newSubjects);
+    _showSnack('✓ Subject "$name" and its photos deleted');
   }
 
   Future<void> _clearAllData() async {
@@ -173,14 +177,13 @@ Future<void> _loadData() async {
       _storagePath = 'Not set';
     });
     _showSnack('✓ All data cleared');
-    // Go back to onboarding
     if (mounted) {
       Navigator.pushNamedAndRemoveUntil(
           context, '/onboarding', (route) => false);
     }
   }
 
-  // DIALOGS
+  // ── DIALOGS ──────────────────────────────────────────────────────
 
   void _showAddSubjectDialog() {
     _newSubjectController.clear();
@@ -190,8 +193,8 @@ Future<void> _loadData() async {
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20)),
         title: const Text('Add Subject',
-            style: TextStyle(
-                fontWeight: FontWeight.bold, fontSize: 16)),
+            style:
+                TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         content: TextField(
           controller: _newSubjectController,
           autofocus: true,
@@ -204,8 +207,8 @@ Future<void> _loadData() async {
                 borderRadius: BorderRadius.circular(12)),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(
-                  color: Color(0xFF89B0AE), width: 2),
+              borderSide:
+                  const BorderSide(color: Color(0xFF89B0AE), width: 2),
             ),
           ),
         ),
@@ -213,13 +216,11 @@ Future<void> _loadData() async {
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: Text('Cancel',
-                style:
-                    TextStyle(color: Colors.grey.shade600)),
+                style: TextStyle(color: Colors.grey.shade600)),
           ),
           ElevatedButton(
             onPressed: () {
-              final name =
-                  _newSubjectController.text.trim();
+              final name = _newSubjectController.text.trim();
               Navigator.pop(context);
               _addSubject(name);
             },
@@ -244,8 +245,8 @@ Future<void> _loadData() async {
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20)),
         title: const Text('Rename Subject',
-            style: TextStyle(
-                fontWeight: FontWeight.bold, fontSize: 16)),
+            style:
+                TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         content: TextField(
           controller: _newSubjectController,
           autofocus: true,
@@ -257,8 +258,8 @@ Future<void> _loadData() async {
                 borderRadius: BorderRadius.circular(12)),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(
-                  color: Color(0xFF89B0AE), width: 2),
+              borderSide:
+                  const BorderSide(color: Color(0xFF89B0AE), width: 2),
             ),
           ),
         ),
@@ -266,13 +267,11 @@ Future<void> _loadData() async {
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: Text('Cancel',
-                style:
-                    TextStyle(color: Colors.grey.shade600)),
+                style: TextStyle(color: Colors.grey.shade600)),
           ),
           ElevatedButton(
             onPressed: () {
-              final name =
-                  _newSubjectController.text.trim();
+              final name = _newSubjectController.text.trim();
               Navigator.pop(context);
               _renameSubject(index, name);
             },
@@ -290,30 +289,63 @@ Future<void> _loadData() async {
   }
 
   void _showDeleteSubjectDialog(int index) {
+    final name = _subjects[index];
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20)),
-        title: const Text('Remove Subject',
-            style: TextStyle(
-                fontWeight: FontWeight.bold, fontSize: 16)),
-        content: Text(
-          'Remove "${_subjects[index]}" from your list? Photos inside will not be deleted.',
-          style:
-              const TextStyle(fontSize: 13, color: Colors.grey),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE07A5F).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.warning_amber_rounded,
+                  color: Color(0xFFE07A5F), size: 20),
+            ),
+            const SizedBox(width: 10),
+            const Text('Remove Subject',
+                style: TextStyle(
+                    fontWeight: FontWeight.bold, fontSize: 16)),
+          ],
+        ),
+        content: RichText(
+          text: TextSpan(
+            style: const TextStyle(
+                fontSize: 13, color: Colors.grey, height: 1.5),
+            children: [
+              const TextSpan(text: 'What would you like to do with '),
+              TextSpan(
+                text: '"$name"',
+                style: const TextStyle(
+                    color: Color(0xFFE07A5F),
+                    fontWeight: FontWeight.bold),
+              ),
+              const TextSpan(text: '?'),
+            ],
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: Text('Cancel',
-                style:
-                    TextStyle(color: Colors.grey.shade600)),
+                style: TextStyle(color: Colors.grey.shade600)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _deleteSubjectFromListOnly(index);
+            },
+            child: const Text('Remove from app only',
+                style: TextStyle(color: Color(0xFF4A90D9))),
           ),
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              _deleteSubject(index);
+              _deleteSubjectWithFolder(index);
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFE07A5F),
@@ -321,7 +353,7 @@ Future<void> _loadData() async {
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10)),
             ),
-            child: const Text('Remove'),
+            child: const Text('Delete everything'),
           ),
         ],
       ),
@@ -335,8 +367,8 @@ Future<void> _loadData() async {
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20)),
         title: const Text('Clear All Data',
-            style: TextStyle(
-                fontWeight: FontWeight.bold, fontSize: 16)),
+            style:
+                TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         content: const Text(
           'This will reset the app completely. You will be taken back to setup. Your actual photo files will NOT be deleted.',
           style: TextStyle(fontSize: 13, color: Colors.grey),
@@ -345,8 +377,7 @@ Future<void> _loadData() async {
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: Text('Cancel',
-                style:
-                    TextStyle(color: Colors.grey.shade600)),
+                style: TextStyle(color: Colors.grey.shade600)),
           ),
           ElevatedButton(
             onPressed: () {
@@ -369,16 +400,15 @@ Future<void> _loadData() async {
   void _showSnack(String msg, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(msg),
-      backgroundColor: isError
-          ? const Color(0xFFE07A5F)
-          : const Color(0xFF035955),
+      backgroundColor:
+          isError ? const Color(0xFFE07A5F) : const Color(0xFF035955),
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12)),
     ));
   }
 
-  // build
+  // ── BUILD ────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -401,6 +431,8 @@ Future<void> _loadData() async {
                       children: [
                         const SizedBox(height: 20),
                         _buildProfileCard(),
+                        const SizedBox(height: 12),
+                        _buildDataSafetyCard(),
                         const SizedBox(height: 20),
                         _buildSectionHeader(
                             'Storage', Icons.storage_rounded),
@@ -425,7 +457,7 @@ Future<void> _loadData() async {
     );
   }
 
-  // header
+  // ── HEADER ───────────────────────────────────────────────────────
 
   Widget _buildHeader() {
     return Container(
@@ -460,10 +492,8 @@ Future<void> _loadData() async {
                         color: Colors.white.withOpacity(0.15),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Icon(
-                          Icons.arrow_back_rounded,
-                          color: Colors.white,
-                          size: 20),
+                      child: const Icon(Icons.arrow_back_rounded,
+                          color: Colors.white, size: 20),
                     ),
                   ),
                   const SizedBox(width: 14),
@@ -494,11 +524,11 @@ Future<void> _loadData() async {
                   _headerStatPill(Icons.folder_rounded,
                       '${_subjects.length}', 'Subjects'),
                   const SizedBox(width: 10),
-                  _headerStatPill(Icons.photo_rounded,
-                      '$_totalPhotos', 'Photos'),
+                  _headerStatPill(
+                      Icons.photo_rounded, '$_totalPhotos', 'Photos'),
                   const SizedBox(width: 10),
-                  _headerStatPill(Icons.storage_rounded,
-                      'Local', 'Storage'),
+                  _headerStatPill(
+                      Icons.storage_rounded, 'Local', 'Storage'),
                 ],
               ),
             ],
@@ -508,8 +538,7 @@ Future<void> _loadData() async {
     );
   }
 
-  Widget _headerStatPill(
-      IconData icon, String value, String label) {
+  Widget _headerStatPill(IconData icon, String value, String label) {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 10),
@@ -535,7 +564,7 @@ Future<void> _loadData() async {
     );
   }
 
-  // profile card
+  // ── PROFILE CARD ─────────────────────────────────────────────────
 
   Widget _buildProfileCard() {
     return Padding(
@@ -585,17 +614,16 @@ Future<void> _loadData() async {
                           fontSize: 16)),
                   SizedBox(height: 3),
                   Text('Your personal lecture organizer',
-                      style: TextStyle(
-                          color: Colors.grey, fontSize: 12)),
+                      style:
+                          TextStyle(color: Colors.grey, fontSize: 12)),
                 ],
               ),
             ),
             Container(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 10, vertical: 5),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
-                color:
-                    const Color(0xFF89B0AE).withOpacity(0.15),
+                color: const Color(0xFF89B0AE).withOpacity(0.15),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: const Text('v1.0.0',
@@ -610,14 +638,74 @@ Future<void> _loadData() async {
     );
   }
 
-  //  SECTION HEADER 
+  // ── DATA SAFETY CARD ─────────────────────────────────────────────
+
+  Widget _buildDataSafetyCard() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF035955).withOpacity(0.06),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: const Color(0xFF035955).withOpacity(0.15),
+          ),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF035955).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.shield_rounded,
+                color: Color(0xFF035955),
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 14),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Your photos are always safe',
+                    style: TextStyle(
+                      color: Color(0xFF035955),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                  SizedBox(height: 5),
+                  Text(
+                    'We never touch your camera roll. LectureVault makes a copy of your photos for classification and stores them in your chosen folder. Your originals stay exactly where they are.',
+                    style: TextStyle(
+                      color: Colors.grey,
+                      fontSize: 11,
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── SECTION HEADER ───────────────────────────────────────────────
 
   Widget _buildSectionHeader(String title, IconData icon) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
       child: Container(
-        padding: const EdgeInsets.symmetric(
-            horizontal: 18, vertical: 13),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
         decoration: BoxDecoration(
           color: AppColors.headerCard,
           borderRadius: BorderRadius.circular(14),
@@ -662,60 +750,54 @@ Future<void> _loadData() async {
     );
   }
 
-  //  STORAGE
+  // ── STORAGE ──────────────────────────────────────────────────────
 
   Widget _buildStorageSection() {
     return _buildCard(
       Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF035955).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(Icons.folder_open_rounded,
-                      color: Color(0xFF035955), size: 20),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Storage Location',
-                          style: TextStyle(
-                              color: AppColors.bodyText,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13)),
-                      const SizedBox(height: 3),
-                      Text(
-                        _storagePath.isEmpty ||
-                                _storagePath == 'Not set'
-                            ? 'Not configured'
-                            : _storagePath,
-                        style: const TextStyle(
-                            color: Colors.grey, fontSize: 11),
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 2,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                GestureDetector(
-                  onTap: _changeStoragePath,
-                  child: const Text('Change',
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF035955).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.folder_open_rounded,
+                  color: Color(0xFF035955), size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Storage Location',
                       style: TextStyle(
-                          color: Color(0xFF89B0AE),
-                          fontWeight: FontWeight.bold,
+                          color: AppColors.bodyText,
+                          fontWeight: FontWeight.w600,
                           fontSize: 13)),
-                ),
-              ],
+                  const SizedBox(height: 3),
+                  Text(
+                    _storagePath.isEmpty || _storagePath == 'Not set'
+                        ? 'Not configured'
+                        : _storagePath,
+                    style:
+                        const TextStyle(color: Colors.grey, fontSize: 11),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 2,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: _changeStoragePath,
+              child: const Text('Change',
+                  style: TextStyle(
+                      color: Color(0xFF89B0AE),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13)),
             ),
           ],
         ),
@@ -723,7 +805,8 @@ Future<void> _loadData() async {
     );
   }
 
-  //subjects
+  // ── SUBJECTS ─────────────────────────────────────────────────────
+
   Widget _buildSubjectsSection() {
     return _buildCard(
       Column(
@@ -733,17 +816,14 @@ Future<void> _loadData() async {
               padding: const EdgeInsets.all(20),
               child: Text('No subjects yet. Add one below!',
                   style: TextStyle(
-                      color: Colors.grey.shade500,
-                      fontSize: 13)),
+                      color: Colors.grey.shade500, fontSize: 13)),
             ),
           ..._subjects.asMap().entries.map((entry) {
             final index = entry.key;
             final subject = entry.value;
             final isLast = index == _subjects.length - 1;
-            final iconColor =
-                _iconColors[index % _iconColors.length];
-            final icon =
-                _subjectIcons[index % _subjectIcons.length];
+            final iconColor = _iconColors[index % _iconColors.length];
+            final icon = _subjectIcons[index % _subjectIcons.length];
             return Column(
               children: [
                 Padding(
@@ -755,11 +835,9 @@ Future<void> _loadData() async {
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
                           color: iconColor.withOpacity(0.12),
-                          borderRadius:
-                              BorderRadius.circular(10),
+                          borderRadius: BorderRadius.circular(10),
                         ),
-                        child: Icon(icon,
-                            color: iconColor, size: 18),
+                        child: Icon(icon, color: iconColor, size: 18),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -776,26 +854,21 @@ Future<void> _loadData() async {
                           decoration: BoxDecoration(
                             color: const Color(0xFF035955)
                                 .withOpacity(0.08),
-                            borderRadius:
-                                BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(8),
                           ),
-                          child: const Icon(
-                              Icons.edit_rounded,
-                              color: Color(0xFF035955),
-                              size: 15),
+                          child: const Icon(Icons.edit_rounded,
+                              color: Color(0xFF035955), size: 15),
                         ),
                       ),
                       const SizedBox(width: 8),
                       GestureDetector(
-                        onTap: () =>
-                            _showDeleteSubjectDialog(index),
+                        onTap: () => _showDeleteSubjectDialog(index),
                         child: Container(
                           padding: const EdgeInsets.all(7),
                           decoration: BoxDecoration(
                             color: const Color(0xFFE07A5F)
                                 .withOpacity(0.08),
-                            borderRadius:
-                                BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(8),
                           ),
                           child: const Icon(
                               Icons.delete_outline_rounded,
@@ -826,8 +899,8 @@ Future<void> _loadData() async {
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF89B0AE)
-                          .withOpacity(0.12),
+                      color:
+                          const Color(0xFF89B0AE).withOpacity(0.12),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Icon(Icons.add_rounded,
@@ -847,7 +920,8 @@ Future<void> _loadData() async {
       ),
     );
   }
-//classification
+
+  // ── CLASSIFICATION ───────────────────────────────────────────────
 
   Widget _buildClassificationSection() {
     return _buildCard(
@@ -860,13 +934,13 @@ Future<void> _loadData() async {
             subtitle: 'Automatically sort photos using AI',
             value: _autoClassify,
             onChanged: (v) async {
-            setState(() => _autoClassify = v);
-            await StorageService.saveClassificationSettings(
-              autoClassify: v,
-              showConfidence: _showConfidence,
-              saveOriginal: _saveOriginal,
-            );
-          },
+              setState(() => _autoClassify = v);
+              await StorageService.saveClassificationSettings(
+                autoClassify: v,
+                showConfidence: _showConfidence,
+                saveOriginal: false,
+              );
+            },
             showDivider: true,
           ),
           _buildToggleTile(
@@ -880,27 +954,11 @@ Future<void> _loadData() async {
               await StorageService.saveClassificationSettings(
                 autoClassify: _autoClassify,
                 showConfidence: v,
-                saveOriginal: _saveOriginal,
+                saveOriginal: false,
               );
             },
-            showDivider: true,
+            showDivider: false,
           ),
-        _buildToggleTile(
-          icon: Icons.save_alt_rounded,
-          iconColor: const Color(0xFF9B59B6),
-          title: 'Keep original copy',
-          subtitle: 'Keep photo in original location after saving', // ← updated
-          value: _saveOriginal,
-          onChanged: (v) async {
-            setState(() => _saveOriginal = v);
-            await StorageService.saveClassificationSettings(
-              autoClassify: _autoClassify,
-              showConfidence: _showConfidence,
-              saveOriginal: v,
-            );
-          },
-          showDivider: false,
-        ),
         ],
       ),
     );
@@ -918,8 +976,8 @@ Future<void> _loadData() async {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(
-              horizontal: 16, vertical: 12),
+          padding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             children: [
               Container(
@@ -969,6 +1027,7 @@ Future<void> _loadData() async {
     );
   }
 
+  // ── DANGER ZONE ──────────────────────────────────────────────────
 
   Widget _buildDangerZone() {
     return Padding(
@@ -995,14 +1054,12 @@ Future<void> _loadData() async {
                   Container(
                     padding: const EdgeInsets.all(6),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFE07A5F)
-                          .withOpacity(0.1),
+                      color:
+                          const Color(0xFFE07A5F).withOpacity(0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: const Icon(
-                        Icons.warning_amber_rounded,
-                        color: Color(0xFFE07A5F),
-                        size: 16),
+                    child: const Icon(Icons.warning_amber_rounded,
+                        color: Color(0xFFE07A5F), size: 16),
                   ),
                   const SizedBox(width: 10),
                   const Text('Danger Zone',
@@ -1039,8 +1096,7 @@ Future<void> _loadData() async {
                       fontSize: 13)),
               subtitle: const Text(
                   'Clear all settings and go back to setup',
-                  style: TextStyle(
-                      fontSize: 11, color: Colors.grey)),
+                  style: TextStyle(fontSize: 11, color: Colors.grey)),
               trailing: Icon(Icons.arrow_forward_ios_rounded,
                   size: 13,
                   color:

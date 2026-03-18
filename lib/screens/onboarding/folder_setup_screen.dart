@@ -89,12 +89,15 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
     setState(() => _isCreating = true);
 
     // Save to prefs
-    await StorageService.saveBasePath(_selectedPath!);
-    await StorageService.saveSubjects(_subjects);
+   await StorageService.saveBasePath(_selectedPath!);
+
+    // always include Unclassified folder
+    final subjectsWithUnclassified = [..._subjects, 'Unclassified'];
+    await StorageService.saveSubjects(subjectsWithUnclassified);
 
     // Create real folders on device
     final success = await StorageService.createAllSubjectFolders(
-        _selectedPath!, _subjects);
+        _selectedPath!, subjectsWithUnclassified);
 
     setState(() => _isCreating = false);
 
@@ -102,8 +105,8 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
       if (success) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-                '✓ Created ${_subjects.length} folders in $_selectedPath'),
+          content: Text(
+              '✓ Created ${subjectsWithUnclassified.length} folders in $_selectedPath'),
             backgroundColor: const Color(0xFF035955),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
@@ -422,6 +425,10 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
           'Add subjects you are currently studying',
           style: TextStyle(color: Colors.grey, fontSize: 12),
         ),
+        const Text(
+        'Use full names e.g. Calculus not Calc for better results',
+        style: TextStyle(color: Colors.grey, fontSize: 12),
+      ),
         const SizedBox(height: 16),
         _subjects.isEmpty
             ? Container(
@@ -596,4 +603,3 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
     );
   }
 }
-

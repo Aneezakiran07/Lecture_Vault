@@ -1,5 +1,5 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
 import '../../core/constants/colors.dart';
 import '../../services/storage_service.dart';
 
@@ -10,12 +10,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _fabAnimController;
-  late Animation<double> _fabScaleAnim;
-
-  // always 0 because home is always the active screen
+class _HomeScreenState extends State<HomeScreen> {
   final int _selectedNavIndex = 0;
 
   List<String> _subjects = [];
@@ -24,7 +19,8 @@ class _HomeScreenState extends State<HomeScreen>
   int _totalPhotos = 0;
   bool _isLoading = true;
 
-  final TextEditingController _newSubjectController = TextEditingController();
+  final TextEditingController _newSubjectController =
+      TextEditingController();
 
   final List<IconData> _subjectIcons = [
     Icons.calculate_rounded,
@@ -62,30 +58,16 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void initState() {
     super.initState();
-    _fabAnimController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 600),
-    );
-    _fabScaleAnim = CurvedAnimation(
-      parent: _fabAnimController,
-      curve: Curves.elasticOut,
-    );
-    _fabAnimController.forward();
     _loadData();
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _loadData();
-  }
 
   @override
   void dispose() {
-    _fabAnimController.dispose();
     _newSubjectController.dispose();
     super.dispose();
   }
+  
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
@@ -115,7 +97,6 @@ class _HomeScreenState extends State<HomeScreen>
     });
   }
 
-  // add subject and save to prefs
   Future<void> _addSubject(String name) async {
     if (name.isEmpty || _subjects.contains(name)) return;
     final updated = [..._subjects, name];
@@ -127,12 +108,27 @@ class _HomeScreenState extends State<HomeScreen>
     _showSnack('Subject "$name" added');
   }
 
-  // delete subject and save to prefs
-  Future<void> _deleteSubject(String name) async {
+
+  Future<void> _deleteSubjectFromListOnly(String name) async {
     final updated = [..._subjects]..remove(name);
     await StorageService.saveSubjects(updated);
     await _loadData();
-    _showSnack('Subject "$name" removed');
+    _showSnack('Subject "$name" removed from app');
+  }
+
+  Future<void> _deleteSubjectWithFolder(String name) async {
+    try {
+      if (_basePath != null) {
+        final dir = Directory('$_basePath/$name');
+        if (await dir.exists()) {
+          await dir.delete(recursive: true);
+        }
+      }
+    } catch (_) {}
+    final updated = [..._subjects]..remove(name);
+    await StorageService.saveSubjects(updated);
+    await _loadData();
+    _showSnack('✓ "$name" and its photos deleted');
   }
 
   void _showAddSubjectDialog() {
@@ -140,24 +136,25 @@ class _HomeScreenState extends State<HomeScreen>
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20)),
         title: const Text('Add Subject',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            style: TextStyle(
+                fontWeight: FontWeight.bold, fontSize: 16)),
         content: TextField(
           controller: _newSubjectController,
           autofocus: true,
           textCapitalization: TextCapitalization.words,
           decoration: InputDecoration(
             hintText: 'Subject name...',
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            border:
-                OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16, vertical: 12),
+            border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12)),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide:
-                  const BorderSide(color: Color(0xFF89B0AE), width: 2),
+              borderSide: const BorderSide(
+                  color: Color(0xFF89B0AE), width: 2),
             ),
           ),
         ),
@@ -186,17 +183,47 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  //UNIFIED DELETE DIALOG (same as settings + folder view) 
+
   void _showDeleteSubjectDialog(String name) {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Remove Subject',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-        content: Text(
-          'Remove "$name" from your subjects? Photos inside will not be deleted.',
-          style: const TextStyle(fontSize: 13, color: Colors.grey),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE07A5F).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.warning_amber_rounded,
+                  color: Color(0xFFE07A5F), size: 20),
+            ),
+            const SizedBox(width: 10),
+            const Text('Remove Subject',
+                style: TextStyle(
+                    fontWeight: FontWeight.bold, fontSize: 16)),
+          ],
+        ),
+        content: RichText(
+          text: TextSpan(
+            style: const TextStyle(
+                fontSize: 13, color: Colors.grey, height: 1.5),
+            children: [
+              const TextSpan(
+                  text: 'What would you like to do with '),
+              TextSpan(
+                text: '"$name"',
+                style: const TextStyle(
+                    color: Color(0xFFE07A5F),
+                    fontWeight: FontWeight.bold),
+              ),
+              const TextSpan(text: '?'),
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -204,10 +231,18 @@ class _HomeScreenState extends State<HomeScreen>
             child: Text('Cancel',
                 style: TextStyle(color: Colors.grey.shade600)),
           ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _deleteSubjectFromListOnly(name);
+            },
+            child: const Text('Remove from app only',
+                style: TextStyle(color: Color(0xFF4A90D9))),
+          ),
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              _deleteSubject(name);
+              _deleteSubjectWithFolder(name);
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFE07A5F),
@@ -215,7 +250,7 @@ class _HomeScreenState extends State<HomeScreen>
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10)),
             ),
-            child: const Text('Remove'),
+            child: const Text('Delete everything'),
           ),
         ],
       ),
@@ -225,11 +260,12 @@ class _HomeScreenState extends State<HomeScreen>
   void _showSnack(String msg, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(msg),
-      backgroundColor:
-          isError ? const Color(0xFFE07A5F) : const Color(0xFF035955),
+      backgroundColor: isError
+          ? const Color(0xFFE07A5F)
+          : const Color(0xFF035955),
       behavior: SnackBarBehavior.floating,
-      shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12)),
     ));
   }
 
@@ -271,22 +307,6 @@ class _HomeScreenState extends State<HomeScreen>
           ],
         ),
       ),
-      floatingActionButton: ScaleTransition(
-        scale: _fabScaleAnim,
-        child: FloatingActionButton.extended(
-          onPressed: () async {
-            await Navigator.pushNamed(context, '/upload');
-            _loadData();
-          },
-          backgroundColor: AppColors.headerCard,
-          foregroundColor: Colors.white,
-          elevation: 4,
-          icon: const Icon(Icons.add_photo_alternate_rounded),
-          label: const Text('Upload',
-              style: TextStyle(fontWeight: FontWeight.bold)),
-        ),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       bottomNavigationBar: _buildBottomNav(),
     );
   }
@@ -340,23 +360,14 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                     ],
                   ),
-                  Row(
-                    children: [
-                      _headerIconButton(Icons.refresh_rounded, _loadData),
-                      const SizedBox(width: 8),
-                      _headerIconButton(
-                        Icons.settings_outlined,
-                        () => Navigator.pushNamed(context, '/settings')
-                            .then((_) => _loadData()),
-                      ),
-                    ],
-                  ),
                 ],
               ),
               const SizedBox(height: 20),
               const Text(
-                'Hi',
-                style: TextStyle(color: Colors.white70, fontSize: 13),
+                'Hi Folk!!!',
+                style:
+                    TextStyle(color: Colors.white70, fontSize: 13),
+                    
               ),
               const SizedBox(height: 4),
               const Text(
@@ -400,19 +411,7 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _headerIconButton(IconData icon, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.15),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Icon(icon, color: Colors.white, size: 20),
-      ),
-    );
-  }
+  //STAT CARDS
 
   Widget _buildStatCards() {
     final stats = [
@@ -444,7 +443,8 @@ class _HomeScreenState extends State<HomeScreen>
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFEEEEEE)),
+                border:
+                    Border.all(color: const Color(0xFFEEEEEE)),
                 boxShadow: const [
                   BoxShadow(
                       color: Color(0x0D000000),
@@ -457,7 +457,8 @@ class _HomeScreenState extends State<HomeScreen>
                   Container(
                     padding: const EdgeInsets.all(7),
                     decoration: BoxDecoration(
-                      color: (s['color'] as Color).withOpacity(0.12),
+                      color:
+                          (s['color'] as Color).withOpacity(0.12),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(s['icon'] as IconData,
@@ -490,12 +491,13 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  // section header with title and add button
+
   Widget _buildSectionHeader() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        padding: const EdgeInsets.fromLTRB(18, 12, 12, 12),
         decoration: BoxDecoration(
           color: AppColors.headerCard,
           borderRadius: BorderRadius.circular(14),
@@ -506,54 +508,64 @@ class _HomeScreenState extends State<HomeScreen>
                 offset: Offset(0, 3)),
           ],
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Your Subjects',
-              style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15),
-            ),
             Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    '${_subjects.length} folder${_subjects.length != 1 ? 's' : ''}',
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600),
-                  ),
+                const Text(
+                  'Your Subjects',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15),
                 ),
-                const SizedBox(width: 8),
-                // add folder button in section header
-                GestureDetector(
-                  onTap: _showAddSubjectDialog,
-                  child: Container(
-                    padding: const EdgeInsets.all(5),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(8),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        '${_subjects.length} folder${_subjects.length != 1 ? 's' : ''}',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600),
+                      ),
                     ),
-                    child: const Icon(Icons.add_rounded,
-                        color: Colors.white, size: 16),
-                  ),
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: _showAddSubjectDialog,
+                      child: Container(
+                        padding: const EdgeInsets.all(5),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.add_rounded,
+                            color: Colors.white, size: 16),
+                      ),
+                    ),
+                  ],
                 ),
               ],
+            ),
+            const SizedBox(height: 5),
+            const Text(
+              'Use full names e.g. Calculus not calc for better results',
+              style: TextStyle(color: Colors.white60, fontSize: 10),
             ),
           ],
         ),
       ),
     );
   }
+
 
   Widget _buildSubjectGrid() {
     return Padding(
@@ -621,17 +633,19 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                   child: Icon(icon, color: iconColor, size: 22),
                 ),
-                // delete button on each card
                 GestureDetector(
                   onTap: () => _showDeleteSubjectDialog(subject),
                   child: Container(
                     padding: const EdgeInsets.all(5),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFE07A5F).withOpacity(0.08),
+                      color: const Color(0xFFE07A5F)
+                          .withOpacity(0.08),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: const Icon(Icons.delete_outline_rounded,
-                        color: Color(0xFFE07A5F), size: 14),
+                    child: const Icon(
+                        Icons.delete_outline_rounded,
+                        color: Color(0xFFE07A5F),
+                        size: 14),
                   ),
                 ),
               ],
@@ -691,7 +705,8 @@ class _HomeScreenState extends State<HomeScreen>
             Text(
               'Tap the button below to add your first subject',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+              style:
+                  TextStyle(color: Colors.grey.shade500, fontSize: 13),
             ),
             const SizedBox(height: 24),
             ElevatedButton.icon(
@@ -728,7 +743,8 @@ class _HomeScreenState extends State<HomeScreen>
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          padding: const EdgeInsets.symmetric(
+              horizontal: 20, vertical: 8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
@@ -743,7 +759,6 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _navItem(IconData icon, String label, int index) {
-    // home screen is always index 0 so only home is ever highlighted
     final isSelected = _selectedNavIndex == index;
     return GestureDetector(
       onTap: () async {
@@ -758,7 +773,8 @@ class _HomeScreenState extends State<HomeScreen>
       },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        padding: const EdgeInsets.symmetric(
+            horizontal: 20, vertical: 8),
         decoration: BoxDecoration(
           color: isSelected
               ? AppColors.headerCard.withOpacity(0.1)
@@ -789,4 +805,4 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
   }
-} 
+}

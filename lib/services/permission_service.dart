@@ -1,14 +1,23 @@
 import 'dart:io';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 
 class PermissionService {
   static bool _isRequestingStorage = false;
   static bool _isRequestingCamera = false;
 
+  // Correct way to get SDK version on Android
+  static Future<int> _getAndroidSdkInt() async {
+    try {
+      final info = await DeviceInfoPlugin().androidInfo;
+      return info.version.sdkInt;
+    } catch (_) {
+      return 0;
+    }
+  }
+
   static Future<bool> requestStoragePermission() async {
-    // Prevent double calls
     if (_isRequestingStorage) {
-      // Wait for existing request to finish
       await Future.delayed(const Duration(milliseconds: 500));
       return checkStoragePermission();
     }
@@ -22,8 +31,7 @@ class PermissionService {
           final photos = await Permission.photos.request();
           return photos.isGranted;
         } else if (sdkInt >= 30) {
-          final manage =
-              await Permission.manageExternalStorage.request();
+          final manage = await Permission.manageExternalStorage.request();
           if (manage.isGranted) return true;
           final storage = await Permission.storage.request();
           return storage.isGranted;
@@ -34,7 +42,6 @@ class PermissionService {
       }
       return true;
     } catch (e) {
-      // If permission request fails, check if already granted
       return checkStoragePermission();
     } finally {
       _isRequestingStorage = false;
@@ -72,16 +79,6 @@ class PermissionService {
       return Permission.camera.isGranted;
     } finally {
       _isRequestingCamera = false;
-    }
-  }
-
-  static Future<int> _getAndroidSdkInt() async {
-    try {
-      final result =
-          await Process.run('getprop', ['ro.build.version.sdk']);
-      return int.tryParse(result.stdout.toString().trim()) ?? 0;
-    } catch (_) {
-      return 0;
     }
   }
 }

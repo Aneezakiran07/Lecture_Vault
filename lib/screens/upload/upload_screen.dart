@@ -85,19 +85,24 @@ void _setStatus(String? msg, {
 Future<void> _loadSettings() async {
   final subjects = await StorageService.getSubjects();
   final basePath = await StorageService.getBasePath();
-  final classSettings = await StorageService.getClassificationSettings(); // ADD
+  final classSettings = await StorageService.getClassificationSettings();
   setState(() {
-    _allSubjects = [...subjects, 'Unclassified'];
+    // FIX 1: Don't hardcode 'Unclassified' — use subjects exactly as stored
+    _allSubjects = subjects;
     _basePath = basePath;
-    _autoClassify = classSettings['autoClassify']!;       // ADD
-    _showConfidence = classSettings['showConfidence']!;   // ADD
-    _saveOriginal = classSettings['saveOriginal']!;       // ADD
+    _autoClassify = classSettings['autoClassify']!;
+    _showConfidence = classSettings['showConfidence']!;
+    _saveOriginal = classSettings['saveOriginal']!;
   });
 }
 
   @override
   void dispose() {
     _headerAnimController.dispose();
+    // FIX 3: clear any lingering undo snackbar when leaving this screen
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ScaffoldMessenger.of(context).clearSnackBars();
+    });
     super.dispose();
   }
 
@@ -296,7 +301,8 @@ Future<void> _pickFromGallery() async {
       }
       _selectedPhotos[idx]['isProcessing'] = false;
     }
-    _currentStep = 2;
+    // FIX 2: advance to step 3 so the spinner stops and tick shows
+    _currentStep = 3;
   });
 
   final unclassified =
@@ -387,6 +393,8 @@ Future<void> _pickFromGallery() async {
         _selectedPhotos[idx]['confidence'] = match.confidence;
         _selectedPhotos[idx]['isProcessing'] = false;
       }
+      // FIX 2: advance to step 3 so spinner stops
+      _currentStep = 3;
     });
 
     _setStatus(
@@ -403,6 +411,7 @@ Future<void> _pickFromGallery() async {
         _selectedPhotos[idx]['confidence'] = 0.0;
         _selectedPhotos[idx]['isProcessing'] = false;
       }
+      _currentStep = 3;
     });
     _setStatus('Processing failed — set subject manually',
         icon: Icons.error_outline_rounded, isError: true);
@@ -535,6 +544,7 @@ Future<void> _confirmAndSave() async {
   if (mounted) {
     if (failed == 0) {
       HapticFeedback.heavyImpact();
+      ScaffoldMessenger.of(context).clearSnackBars();
       _showSnack('$saved photo${saved > 1 ? 's' : ''} saved successfully!');
       await Future.delayed(const Duration(milliseconds: 800));
       Navigator.pushReplacementNamed(context, '/home');
@@ -544,7 +554,6 @@ Future<void> _confirmAndSave() async {
   }
 }
 
-  // FIX: undo remove — holds removed photo for 4s, restores if user taps undo
   void _removePhoto(int index) {
     HapticFeedback.lightImpact();
     final removed = Map<String, dynamic>.from(_selectedPhotos[index]);
@@ -555,6 +564,7 @@ Future<void> _confirmAndSave() async {
       if (_selectedPhotos.isEmpty) _currentStep = 0;
     });
 
+    // FIX 3: clear previous snackbar first, strict 4s duration
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -569,7 +579,6 @@ Future<void> _confirmAndSave() async {
           onPressed: () {
             HapticFeedback.selectionClick();
             setState(() {
-              // reinsert at original position (clamped in case list shrank)
               final insertAt =
                   removedIndex.clamp(0, _selectedPhotos.length);
               _selectedPhotos.insert(insertAt, removed);
@@ -582,12 +591,15 @@ Future<void> _confirmAndSave() async {
   }
 
   void _showSnack(String msg, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(msg),
       backgroundColor:
           isError ? const Color(0xFFE07A5F) : const Color(0xFF035955),
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      duration: const Duration(seconds: 4),
     ));
   }
 
@@ -978,59 +990,64 @@ Future<void> _confirmAndSave() async {
       ),
     );
   }
-  Widget _buildStatusBanner() {
-  if (_statusMessage == null) return const SizedBox.shrink();
 
-  return AnimatedContainer(
-    duration: const Duration(milliseconds: 300),
-    margin: const EdgeInsets.fromLTRB(20, 0, 20, 14),
-    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-    decoration: BoxDecoration(
-      color: _statusIsError
-          ? const Color(0xFFE07A5F).withOpacity(0.1)
-          : const Color(0xFF035955).withOpacity(0.08),
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(
+  Widget _buildStatusBanner() {
+    if (_statusMessage == null) return const SizedBox.shrink();
+
+    // FIX 2: only spin while actually processing (step 1 or 2 AND photos still pending)
+    final isActivelyProcessing = (_currentStep == 1 || _currentStep == 2) &&
+        _selectedPhotos.any((p) => p['isProcessing'] as bool);
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      margin: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
         color: _statusIsError
-            ? const Color(0xFFE07A5F).withOpacity(0.3)
-            : const Color(0xFF89B0AE).withOpacity(0.4),
+            ? const Color(0xFFE07A5F).withOpacity(0.1)
+            : const Color(0xFF035955).withOpacity(0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: _statusIsError
+              ? const Color(0xFFE07A5F).withOpacity(0.3)
+              : const Color(0xFF89B0AE).withOpacity(0.4),
+        ),
       ),
-    ),
-    child: Row(
-      children: [
-        // animated spinner for active processing, static icon otherwise
-        if (!_statusIsError && (_currentStep == 1 || _currentStep == 2))
-          const SizedBox(
-            width: 16,
-            height: 16,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: Color(0xFF035955),
-            ),
-          )
-        else
-          Icon(_statusIcon,
-              size: 16,
-              color: _statusIsError
-                  ? const Color(0xFFE07A5F)
-                  : const Color(0xFF035955)),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            _statusMessage!,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: _statusIsError
-                  ? const Color(0xFFE07A5F)
-                  : const Color(0xFF035955),
+      child: Row(
+        children: [
+          if (!_statusIsError && isActivelyProcessing)
+            const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Color(0xFF035955),
+              ),
+            )
+          else
+            Icon(_statusIcon,
+                size: 16,
+                color: _statusIsError
+                    ? const Color(0xFFE07A5F)
+                    : const Color(0xFF035955)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              _statusMessage!,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: _statusIsError
+                    ? const Color(0xFFE07A5F)
+                    : const Color(0xFF035955),
+              ),
             ),
           ),
-        ),
-      ],
-    ),
-  );
-}
+        ],
+      ),
+    );
+  }
+
   Widget _buildPhotoStrip() {
     return SizedBox(
       height: 100,
@@ -1571,6 +1588,7 @@ Widget _buildClassificationList() {
             child: OutlinedButton(
               onPressed: () {
                 HapticFeedback.lightImpact();
+                ScaffoldMessenger.of(context).clearSnackBars();
                 Navigator.maybePop(context);
               },
               style: OutlinedButton.styleFrom(
@@ -1637,4 +1655,3 @@ Widget _buildClassificationList() {
     );
   }
 }
-
