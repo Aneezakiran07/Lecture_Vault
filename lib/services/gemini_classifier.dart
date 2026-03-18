@@ -5,8 +5,6 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 
 class GeminiClassifier {
-  // ⚠️ REVOKE THIS KEY!
-  // Change this:
   static final String _apiKey = dotenv.env['GEMINI_API_KEY'] ?? '';
 
   static GenerativeModel? _model;

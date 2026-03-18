@@ -23,10 +23,8 @@ class _SettingsScreenState extends State<SettingsScreen>
   bool _autoClassify = true;
   bool _showConfidence = true;
   bool _saveOriginal = false;
-  bool _notifications = true;
   bool _isLoading = true;
 
-  final String _appVersion = '1.0.0 (Build 1)';
   final TextEditingController _newSubjectController =
       TextEditingController();
 
@@ -71,26 +69,28 @@ class _SettingsScreenState extends State<SettingsScreen>
     _loadData();
   }
 
-  Future<void> _loadData() async {
-    setState(() => _isLoading = true);
-    final path = await StorageService.getBasePath();
-    final subjects = await StorageService.getSubjects();
+Future<void> _loadData() async {
+  setState(() => _isLoading = true);
+  final path = await StorageService.getBasePath();
+  final subjects = await StorageService.getSubjects();
+  final classSettings = await StorageService.getClassificationSettings(); // ADD
 
-    // Count total photos
-    int total = 0;
-    if (path != null) {
-      final counts = await StorageService.getSubjectPhotoCounts(
-          path, subjects);
-      total = counts.values.fold(0, (a, b) => a + b);
-    }
-
-    setState(() {
-      _storagePath = path ?? 'Not set';
-      _subjects = subjects;
-      _totalPhotos = total;
-      _isLoading = false;
-    });
+  int total = 0;
+  if (path != null) {
+    final counts = await StorageService.getSubjectPhotoCounts(path, subjects);
+    total = counts.values.fold(0, (a, b) => a + b);
   }
+
+  setState(() {
+    _storagePath = path ?? 'Not set';
+    _subjects = subjects;
+    _totalPhotos = total;
+    _autoClassify = classSettings['autoClassify']!;       // ADD
+    _showConfidence = classSettings['showConfidence']!;   // ADD
+    _saveOriginal = classSettings['saveOriginal']!;       // ADD
+    _isLoading = false;
+  });
+}
 
   @override
   void dispose() {
@@ -98,8 +98,6 @@ class _SettingsScreenState extends State<SettingsScreen>
     _newSubjectController.dispose();
     super.dispose();
   }
-
-  // ── STORAGE PATH CHANGE ──────────────────────────────────────────
 
   Future<void> _changeStoragePath() async {
     final hasPermission =
@@ -126,7 +124,6 @@ class _SettingsScreenState extends State<SettingsScreen>
     }
   }
 
-  // ── SUBJECT MANAGEMENT ───────────────────────────────────────────
 
   Future<void> _addSubject(String name) async {
     if (name.isEmpty || _subjects.contains(name)) return;
@@ -170,8 +167,7 @@ class _SettingsScreenState extends State<SettingsScreen>
   }
 
   Future<void> _clearAllData() async {
-    await StorageService.saveSubjects([]);
-    await StorageService.saveBasePath('');
+    await StorageService.clearAll();
     setState(() {
       _subjects = [];
       _storagePath = 'Not set';
@@ -184,7 +180,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     }
   }
 
-  // ── DIALOGS ──────────────────────────────────────────────────────
+  // DIALOGS
 
   void _showAddSubjectDialog() {
     _newSubjectController.clear();
@@ -382,7 +378,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     ));
   }
 
-  // ── BUILD ────────────────────────────────────────────────────────
+  // build
 
   @override
   Widget build(BuildContext context) {
@@ -418,10 +414,6 @@ class _SettingsScreenState extends State<SettingsScreen>
                             Icons.auto_awesome_rounded),
                         _buildClassificationSection(),
                         const SizedBox(height: 16),
-                        _buildSectionHeader(
-                            'About', Icons.info_rounded),
-                        _buildAboutSection(),
-                        const SizedBox(height: 16),
                         _buildDangerZone(),
                         const SizedBox(height: 40),
                       ],
@@ -433,7 +425,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-  // ── HEADER ───────────────────────────────────────────────────────
+  // header
 
   Widget _buildHeader() {
     return Container(
@@ -543,7 +535,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-  // ── PROFILE CARD ─────────────────────────────────────────────────
+  // profile card
 
   Widget _buildProfileCard() {
     return Padding(
@@ -618,7 +610,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-  // ── SECTION HEADER ───────────────────────────────────────────────
+  //  SECTION HEADER 
 
   Widget _buildSectionHeader(String title, IconData icon) {
     return Padding(
@@ -670,7 +662,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-  // ── STORAGE ──────────────────────────────────────────────────────
+  //  STORAGE
 
   Widget _buildStorageSection() {
     return _buildCard(
@@ -731,8 +723,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-  // ── SUBJECTS ─────────────────────────────────────────────────────
-
+  //subjects
   Widget _buildSubjectsSection() {
     return _buildCard(
       Column(
@@ -856,8 +847,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       ),
     );
   }
-
-  // ── CLASSIFICATION ───────────────────────────────────────────────
+//classification
 
   Widget _buildClassificationSection() {
     return _buildCard(
@@ -869,7 +859,14 @@ class _SettingsScreenState extends State<SettingsScreen>
             title: 'Auto-classify on upload',
             subtitle: 'Automatically sort photos using AI',
             value: _autoClassify,
-            onChanged: (v) => setState(() => _autoClassify = v),
+            onChanged: (v) async {
+            setState(() => _autoClassify = v);
+            await StorageService.saveClassificationSettings(
+              autoClassify: v,
+              showConfidence: _showConfidence,
+              saveOriginal: _saveOriginal,
+            );
+          },
             showDivider: true,
           ),
           _buildToggleTile(
@@ -878,20 +875,32 @@ class _SettingsScreenState extends State<SettingsScreen>
             title: 'Show confidence score',
             subtitle: 'Display AI accuracy percentage',
             value: _showConfidence,
-            onChanged: (v) =>
-                setState(() => _showConfidence = v),
+            onChanged: (v) async {
+              setState(() => _showConfidence = v);
+              await StorageService.saveClassificationSettings(
+                autoClassify: _autoClassify,
+                showConfidence: v,
+                saveOriginal: _saveOriginal,
+              );
+            },
             showDivider: true,
           ),
-          _buildToggleTile(
-            icon: Icons.save_alt_rounded,
-            iconColor: const Color(0xFF9B59B6),
-            title: 'Keep original copy',
-            subtitle: 'Save original before moving',
-            value: _saveOriginal,
-            onChanged: (v) =>
-                setState(() => _saveOriginal = v),
-            showDivider: false,
-          ),
+        _buildToggleTile(
+          icon: Icons.save_alt_rounded,
+          iconColor: const Color(0xFF9B59B6),
+          title: 'Keep original copy',
+          subtitle: 'Keep photo in original location after saving', // ← updated
+          value: _saveOriginal,
+          onChanged: (v) async {
+            setState(() => _saveOriginal = v);
+            await StorageService.saveClassificationSettings(
+              autoClassify: _autoClassify,
+              showConfidence: _showConfidence,
+              saveOriginal: v,
+            );
+          },
+          showDivider: false,
+        ),
         ],
       ),
     );
@@ -960,83 +969,6 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-  // ── ABOUT ────────────────────────────────────────────────────────
-
-  Widget _buildAboutSection() {
-    return _buildCard(
-      Column(
-        children: [
-          _buildAboutTile(
-            icon: Icons.info_outline_rounded,
-            iconColor: const Color(0xFF035955),
-            title: 'App Version',
-            trailing: Text(_appVersion,
-                style: const TextStyle(
-                    color: Colors.grey, fontSize: 12)),
-            showDivider: true,
-            onTap: () {},
-          ),
-          _buildAboutTile(
-            icon: Icons.star_outline_rounded,
-            iconColor: const Color(0xFFFFB300),
-            title: 'Rate LectureVault',
-            showDivider: true,
-            onTap: () {},
-          ),
-          _buildAboutTile(
-            icon: Icons.privacy_tip_outlined,
-            iconColor: const Color(0xFF4A90D9),
-            title: 'Privacy Policy',
-            showDivider: false,
-            onTap: () {},
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAboutTile({
-    required IconData icon,
-    required Color iconColor,
-    required String title,
-    required VoidCallback onTap,
-    required bool showDivider,
-    Widget? trailing,
-  }) {
-    return Column(
-      children: [
-        ListTile(
-          onTap: onTap,
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-          leading: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: iconColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: iconColor, size: 18),
-          ),
-          title: Text(title,
-              style: const TextStyle(
-                  color: AppColors.bodyText,
-                  fontWeight: FontWeight.w500,
-                  fontSize: 13)),
-          trailing: trailing ??
-              Icon(Icons.arrow_forward_ios_rounded,
-                  size: 13, color: Colors.grey.shade400),
-        ),
-        if (showDivider)
-          const Divider(
-              height: 1,
-              color: Color(0xFFF0F0F0),
-              indent: 16,
-              endIndent: 16),
-      ],
-    );
-  }
-
-  // ── DANGER ZONE ──────────────────────────────────────────────────
 
   Widget _buildDangerZone() {
     return Padding(

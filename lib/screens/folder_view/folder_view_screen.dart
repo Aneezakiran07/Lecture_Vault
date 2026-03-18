@@ -1,7 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../core/constants/colors.dart';
 import '../../services/storage_service.dart';
+import '../image_viewer_screen.dart'; 
 
 class FolderViewScreen extends StatefulWidget {
   final String folderName;
@@ -64,7 +66,6 @@ class _FolderViewScreenState extends State<FolderViewScreen>
     super.dispose();
   }
 
-  // read folder name and base path from navigator args then load real files
   Future<void> _loadPhotos() async {
     setState(() => _isLoading = true);
 
@@ -87,7 +88,6 @@ class _FolderViewScreenState extends State<FolderViewScreen>
       subject: folderName,
     );
 
-    // build photo list from real file metadata
     final photoData = files.map((file) {
       final stat = file.statSync();
       return {
@@ -151,6 +151,7 @@ class _FolderViewScreenState extends State<FolderViewScreen>
   }
 
   void _toggleSelect(int id) {
+    HapticFeedback.selectionClick();
     setState(() {
       if (_selectedIds.contains(id)) {
         _selectedIds.remove(id);
@@ -160,7 +161,24 @@ class _FolderViewScreenState extends State<FolderViewScreen>
     });
   }
 
+  // opens full-screen viewer at the tapped photo, all photos in folder are swipeable
+  void _openViewer(int index) {
+    HapticFeedback.lightImpact();
+    final paths = _photos.map((p) => p['path'] as String).toList();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ImageViewerScreen(
+          imagePaths: paths,
+          initialIndex: index,
+          title: _photos[index]['label'] as String,
+        ),
+      ),
+    );
+  }
+
   Future<void> _deleteSelected() async {
+    HapticFeedback.mediumImpact();
     final toDelete =
         _photos.where((p) => _selectedIds.contains(p['id'])).toList();
     for (final photo in toDelete) {
@@ -171,7 +189,8 @@ class _FolderViewScreenState extends State<FolderViewScreen>
   }
 
   Future<void> _deleteSinglePhoto(String path) async {
-    Navigator.pop(context);
+    Navigator.pop(context); // close bottom sheet
+    HapticFeedback.mediumImpact();
     await StorageService.deletePhoto(path);
     await _loadPhotos();
   }
@@ -212,44 +231,161 @@ class _FolderViewScreenState extends State<FolderViewScreen>
         ),
       ),
     );
+  }void _showFolderMenu() {
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (_) => Container(
+      margin: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 40,
+            height: 4,
+            margin: const EdgeInsets.only(top: 12, bottom: 16),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade300,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          _sheetTile(Icons.refresh_rounded, 'Refresh',
+              const Color(0xFF035955), () {
+            Navigator.pop(context);
+            _loadPhotos();
+          }),
+          _sheetTile(Icons.delete_outline_rounded, 'Delete Folder',
+              const Color(0xFFE07A5F), () {
+            Navigator.pop(context); // close bottom sheet first
+            _showDeleteFolderDialog();
+          }),
+          const SizedBox(height: 16),
+        ],
+      ),
+    ),
+  );
+}
+
+void _showDeleteFolderDialog() {
+  final args = ModalRoute.of(context)?.settings.arguments;
+  String folderName = widget.folderName;
+  String basePath = widget.basePath;
+
+  if (args is Map) {
+    folderName = args['folderName'] as String? ?? widget.folderName;
+    basePath = args['basePath'] as String? ?? widget.basePath;
   }
 
-  void _showFolderMenu() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (_) => Container(
-        margin: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.only(top: 12, bottom: 16),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2),
-              ),
+  showDialog(
+    context: context,
+    builder: (_) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE07A5F).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10),
             ),
-            _sheetTile(Icons.refresh_rounded, 'Refresh',
-                const Color(0xFF035955), () {
-              Navigator.pop(context);
-              _loadPhotos();
-            }),
-            _sheetTile(Icons.delete_outline_rounded, 'Delete Folder',
-                const Color(0xFFE07A5F), () => Navigator.pop(context)),
-            const SizedBox(height: 16),
+            child: const Icon(Icons.warning_amber_rounded,
+                color: Color(0xFFE07A5F), size: 20),
+          ),
+          const SizedBox(width: 10),
+          const Text('Delete Folder',
+              style:
+                  TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        ],
+      ),
+      content: RichText(
+        text: TextSpan(
+          style: const TextStyle(fontSize: 13, color: Colors.grey, height: 1.5),
+          children: [
+            const TextSpan(text: 'This will permanently delete '),
+            TextSpan(
+              text: '"$folderName"',
+              style: const TextStyle(
+                  color: Color(0xFFE07A5F), fontWeight: FontWeight.bold),
+            ),
+            const TextSpan(
+                text: ' and ALL photos inside it from your device.\n\n'),
+            const TextSpan(
+              text: '⚠️ This cannot be undone.',
+              style: TextStyle(
+                  fontWeight: FontWeight.bold, color: Colors.black87),
+            ),
           ],
         ),
       ),
-    );
-  }
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text('Cancel',
+              style: TextStyle(color: Colors.grey.shade600)),
+        ),
+        ElevatedButton(
+          onPressed: () async {
+            Navigator.pop(context); // close dialog
+            await _deleteFolder(folderName, basePath);
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFFE07A5F),
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10)),
+          ),
+          child: const Text('Delete Everything'),
+        ),
+      ],
+    ),
+  );
+}
 
+Future<void> _deleteFolder(String folderName, String basePath) async {
+  try {
+    final folderPath = '$basePath/$folderName';
+    final dir = Directory(folderPath);
+    if (await dir.exists()) {
+      await dir.delete(recursive: true);
+    }
+
+    // also remove from subjects list in prefs
+    final subjects = await StorageService.getSubjects();
+    final updated = subjects.where((s) => s != folderName).toList();
+    await StorageService.saveSubjects(updated);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✓ "$folderName" deleted'),
+          backgroundColor: const Color(0xFF035955),
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+      // go back to home since folder no longer exists
+      Navigator.pushNamedAndRemoveUntil(
+          context, '/home', (route) => false);
+    }
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Failed to delete folder'),
+          backgroundColor: const Color(0xFFE07A5F),
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
+  }
+}
   @override
   Widget build(BuildContext context) {
     final args = ModalRoute.of(context)?.settings.arguments;
@@ -332,7 +468,10 @@ class _FolderViewScreenState extends State<FolderViewScreen>
               Row(
                 children: [
                   GestureDetector(
-                    onTap: () => Navigator.maybePop(context),
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      Navigator.maybePop(context);
+                    },
                     child: Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
@@ -345,7 +484,10 @@ class _FolderViewScreenState extends State<FolderViewScreen>
                   ),
                   const Spacer(),
                   GestureDetector(
-                    onTap: () => setState(() => _isGridView = !_isGridView),
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() => _isGridView = !_isGridView);
+                    },
                     child: Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
@@ -532,15 +674,20 @@ class _FolderViewScreenState extends State<FolderViewScreen>
         childAspectRatio: 0.85,
       ),
       itemCount: _photos.length,
-      itemBuilder: (context, index) => _buildPhotoCard(_photos[index]),
+      itemBuilder: (context, index) => _buildPhotoCard(_photos[index], index),
     );
   }
 
-  Widget _buildPhotoCard(Map<String, dynamic> photo) {
+  Widget _buildPhotoCard(Map<String, dynamic> photo, int index) {
     final isSelected = _selectedIds.contains(photo['id']);
     return GestureDetector(
       onTap: () {
-        if (_isSelecting) _toggleSelect(photo['id'] as int);
+        if (_isSelecting) {
+          _toggleSelect(photo['id'] as int);
+        } else {
+          // FIX: tap opens full-screen viewer
+          _openViewer(index);
+        }
       },
       onLongPress: () => _toggleSelect(photo['id'] as int),
       child: AnimatedContainer(
@@ -655,7 +802,12 @@ class _FolderViewScreenState extends State<FolderViewScreen>
         final isSelected = _selectedIds.contains(photo['id']);
         return GestureDetector(
           onTap: () {
-            if (_isSelecting) _toggleSelect(photo['id'] as int);
+            if (_isSelecting) {
+              _toggleSelect(photo['id'] as int);
+            } else {
+              // FIX: tap opens full-screen viewer in list view too
+              _openViewer(index);
+            }
           },
           onLongPress: () => _toggleSelect(photo['id'] as int),
           child: AnimatedContainer(
@@ -797,7 +949,10 @@ class _FolderViewScreenState extends State<FolderViewScreen>
       child: Row(
         children: [
           GestureDetector(
-            onTap: () => setState(() => _selectedIds.clear()),
+            onTap: () {
+              HapticFeedback.lightImpact();
+              setState(() => _selectedIds.clear());
+            },
             child: Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
@@ -907,6 +1062,14 @@ class _FolderViewScreenState extends State<FolderViewScreen>
           const SizedBox(height: 16),
           const Divider(height: 1),
           const SizedBox(height: 8),
+          // FIX: "Open" option added to bottom sheet
+          _sheetTile(Icons.open_in_full_rounded, 'Open',
+              const Color(0xFF035955), () {
+            Navigator.pop(context); // close sheet first
+            final index =
+                _photos.indexWhere((p) => p['path'] == photo['path']);
+            if (index != -1) _openViewer(index);
+          }),
           _sheetTile(Icons.share_rounded, 'Share',
               const Color(0xFF4A90D9), () => Navigator.pop(context)),
           _sheetTile(Icons.delete_outline_rounded, 'Delete',

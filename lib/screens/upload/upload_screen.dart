@@ -1,6 +1,7 @@
-//upload screen
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../core/constants/colors.dart';
 import '../../services/ocr_service.dart';
@@ -8,6 +9,7 @@ import '../../services/classifier_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/permission_service.dart';
 import '../../services/ocr_result.dart';
+import '../image_viewer_screen.dart'; // adjust path if needed
 
 class UploadScreen extends StatefulWidget {
   const UploadScreen({super.key});
@@ -17,7 +19,25 @@ class UploadScreen extends StatefulWidget {
 }
 
 class _UploadScreenState extends State<UploadScreen>
-    with TickerProviderStateMixin {
+with TickerProviderStateMixin {
+  bool _autoClassify = true;
+  bool _showConfidence = true;
+  bool _saveOriginal = false;
+
+  String? _statusMessage;
+  bool _statusIsError = false;
+  IconData _statusIcon = Icons.info_outline_rounded;
+
+void _setStatus(String? msg, {
+  IconData icon = Icons.info_outline_rounded,
+  bool isError = false,
+}) {
+  setState(() {
+    _statusMessage = msg;
+    _statusIcon = icon;
+    _statusIsError = isError;
+  });
+}
   late AnimationController _headerAnimController;
   late Animation<double> _headerFadeAnim;
 
@@ -32,10 +52,13 @@ class _UploadScreenState extends State<UploadScreen>
   int? _expandedIndex;
 
   static const int _maxPhotos = 20;
+  // confidence below this shows a warning badge nudging manual override
+  static const double _lowConfidenceThreshold = 0.35;
 
   final List<String> _debugLines = [];
 
   void _log(String msg) {
+    if (!kDebugMode) return; // only collect logs in debug builds
     print(msg);
     setState(() {
       _debugLines.add(msg);
@@ -58,16 +81,19 @@ class _UploadScreenState extends State<UploadScreen>
     _loadSettings();
   }
 
-  Future<void> _loadSettings() async {
-    final subjects = await StorageService.getSubjects();
-    final basePath = await StorageService.getBasePath();
-    setState(() {
-      _allSubjects = [...subjects, 'Unclassified'];
-      _basePath = basePath;
-    });
-    _log('Loaded ${subjects.length} subjects: $subjects');
-    _log('Base path: $basePath');
-  }
+
+Future<void> _loadSettings() async {
+  final subjects = await StorageService.getSubjects();
+  final basePath = await StorageService.getBasePath();
+  final classSettings = await StorageService.getClassificationSettings(); // ADD
+  setState(() {
+    _allSubjects = [...subjects, 'Unclassified'];
+    _basePath = basePath;
+    _autoClassify = classSettings['autoClassify']!;       // ADD
+    _showConfidence = classSettings['showConfidence']!;   // ADD
+    _saveOriginal = classSettings['saveOriginal']!;       // ADD
+  });
+}
 
   @override
   void dispose() {
@@ -103,216 +129,285 @@ class _UploadScreenState extends State<UploadScreen>
     _log('Batch classification complete! ${results.length} results applied.');
   }
 
-  Future<void> _pickFromGallery() async {
-    _log('Gallery picker started');
+  // opens full-screen viewer — all selected photos are swipeable
+void _openViewer(int index) {
+  HapticFeedback.lightImpact();
+  final paths = _selectedPhotos.map((p) => p['path'] as String).toList();
 
-    final hasPermission = await PermissionService.requestStoragePermission();
-    _log('Permission: $hasPermission');
-    if (!hasPermission) {
-      _showSnack('Storage permission required', isError: true);
+  if (paths.isEmpty || index >= paths.length) return;
+
+  final path = paths[index];
+
+  // content:// URIs from gallery don't work with File() — skip the check
+  // for those and let the viewer handle the error gracefully
+  if (!path.startsWith('content://')) {
+    final file = File(path);
+    if (!file.existsSync()) {
+      _showSnack('Image not accessible', isError: true);
       return;
     }
+  }
 
-    final remaining = _maxPhotos - _selectedPhotos.length;
-    if (remaining <= 0) {
-      _showSnack('Max $_maxPhotos photos per session reached', isError: true);
-      return;
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => ImageViewerScreen(
+        imagePaths: paths,
+        initialIndex: index,
+        title: 'Photo ${index + 1} of ${paths.length}',
+      ),
+    ),
+  );
+  }
+Future<void> _pickFromGallery() async {
+  _log('Gallery picker started');
+  final hasPermission = await PermissionService.requestStoragePermission();
+  if (!hasPermission) {
+    _showSnack('Storage permission required', isError: true);
+    return;
+  }
+
+  final remaining = _maxPhotos - _selectedPhotos.length;
+  if (remaining <= 0) {
+    _showSnack('Max $_maxPhotos photos per session reached', isError: true);
+    return;
+  }
+
+  var picked = await _picker.pickMultiImage(imageQuality: 90);
+  if (picked.isEmpty) return;
+
+  if (picked.length > remaining) {
+    final removed = picked.length - remaining;
+    picked = picked.take(remaining).toList();
+    _showSnack(
+      'Only $remaining slot${remaining == 1 ? '' : 's'} left — '
+      '$removed photo${removed == 1 ? '' : 's'} above the $_maxPhotos limit removed',
+      isError: true,
+    );
+  }
+
+  final paths = picked.map((x) => x.path).toList();
+  final subjects = _allSubjects.where((s) => s != 'Unclassified').toList();
+  final startIdx = _selectedPhotos.length;
+
+  setState(() {
+    _currentStep = 1;
+    for (final path in paths) {
+      _selectedPhotos.add({
+        'path': path,
+        'ocrText': '',
+        'subject': '',
+        'confidence': 0.0,
+        'override': null,
+        'isProcessing': true,
+      });
     }
+  });
 
-    var picked = await _picker.pickMultiImage(imageQuality: 90);
-    _log('Picked ${picked.length} photos');
-    if (picked.isEmpty) return;
-
-    // FIX: if user picked more than remaining slots, trim and tell them exactly
-    // how many were removed and that they were the ones above the limit
-    if (picked.length > remaining) {
-      final removed = picked.length - remaining;
-      picked = picked.take(remaining).toList();
-      _showSnack(
-        'Only $remaining slot${remaining == 1 ? '' : 's'} left — '
-        '$removed photo${removed == 1 ? '' : 's'} above the $_maxPhotos limit removed',
-        isError: true,
-      );
-      _log('Removed $removed photos exceeding session limit of $_maxPhotos');
-    }
-
-    final paths = picked.map((x) => x.path).toList();
-    final subjects = _allSubjects.where((s) => s != 'Unclassified').toList();
-
-    _log('Total photos to process: ${paths.length}');
-    _log('Subjects available: $subjects');
-
+  // AUTO-CLASSIFY OFF
+  if (!_autoClassify) {
     setState(() {
-      _currentStep = 1;
-      for (final path in paths) {
-        _selectedPhotos.add({
-          'path': path,
-          'ocrText': 'Scanning...',
-          'subject': '',
-          'confidence': 0.0,
-          'override': null,
-          'isProcessing': true,
-        });
+      for (int i = startIdx; i < _selectedPhotos.length; i++) {
+        _selectedPhotos[i]['subject'] = 'Unclassified';
+        _selectedPhotos[i]['confidence'] = 0.0;
+        _selectedPhotos[i]['ocrText'] = 'Auto-classify disabled';
+        _selectedPhotos[i]['isProcessing'] = false;
       }
+      _currentStep = 2;
     });
+    _setStatus(
+      'Auto-classify is off — set subjects manually',
+      icon: Icons.info_outline_rounded,
+    );
+    return;
+  }
 
-    final startIdx = _selectedPhotos.length - paths.length;
-    _log('startIdx: $startIdx');
+  // Phase 1 ocr
 
-    _log('--- OCR PHASE START ---');
-    _log('Running OCR on ${paths.length} images in parallel...');
-    List<OcrResult> ocrResults;
-    try {
-      ocrResults = await Future.wait(
-        paths.map((p) => OcrService.extractRich(p)),
-        eagerError: false,
-      );
-      _log('OCR complete for ${ocrResults.length} images');
-      for (int i = 0; i < ocrResults.length; i++) {
-        _log('OCR[$i]: rawLen=${ocrResults[i].rawText.length} keywords=${ocrResults[i].keywords.take(5).toList()}');
-        _log('OCR[$i] rawText preview: ${ocrResults[i].rawText.substring(0, ocrResults[i].rawText.length.clamp(0, 80))}');
+  _setStatus(
+    'Scanning ${paths.length} photo${paths.length > 1 ? 's' : ''} for text...',
+    icon: Icons.document_scanner_rounded,
+  );
+
+  List<OcrResult> ocrResults;
+  try {
+    ocrResults = await Future.wait(
+      paths.map((p) => OcrService.extractRich(p)),
+      eagerError: false,
+    );
+    _log('OCR complete for ${ocrResults.length} images');
+  } catch (e) {
+    _log('OCR failed: $e');
+    _setStatus('Scanning failed — please try again',
+        icon: Icons.error_outline_rounded, isError: true);
+    return;
+  }
+
+  setState(() => _currentStep = 2);
+
+  // PHASE 2: CLASSIFICATION
+  _setStatus(
+    'Classifying ${ocrResults.length} photo${ocrResults.length > 1 ? 's' : ''} with AI...',
+    icon: Icons.auto_awesome_rounded,
+  );
+
+  List<({String subject, double confidence})> results;
+  try {
+    results = await ClassifierService.classifyAllFromOcr(
+      ocrResults,
+      subjects,
+      onLog: _log,
+      onProgress: (completed, total) {
+        _setStatus(
+          'Classifying photos — $completed of $total done...',
+          icon: Icons.auto_awesome_rounded,
+        );
+      },
+    );
+  } catch (e) {
+    _log('Classification failed: $e');
+    _setStatus(
+      'Classification failed — you can override subjects manually',
+      icon: Icons.warning_amber_rounded,
+      isError: true,
+    );
+    return;
+  }
+
+  //update ui phase 3
+  setState(() {
+    for (int i = 0; i < paths.length; i++) {
+      final idx = startIdx + i;
+      if (idx >= _selectedPhotos.length) continue;
+      final ocr = ocrResults[i];
+      final result = i < results.length
+          ? results[i]
+          : (subject: 'Unclassified', confidence: 0.0);
+      if (result.subject == 'No Internet') {
+        _selectedPhotos[idx]['ocrText'] = 'Connect to internet to classify';
+        _selectedPhotos[idx]['subject'] = 'Unclassified';
+        _selectedPhotos[idx]['confidence'] = 0.0;
+      } else {
+        _selectedPhotos[idx]['ocrText'] = ocr.keywords.isNotEmpty
+            ? ocr.keywords.take(8).join(', ')
+            : 'No text detected';
+        _selectedPhotos[idx]['subject'] = result.subject;
+        _selectedPhotos[idx]['confidence'] = result.confidence;
       }
-      _log('--- OCR PHASE END ---');
-    } catch (e) {
-      _log('OCR failed: $e');
-      return;
+      _selectedPhotos[idx]['isProcessing'] = false;
     }
+    _currentStep = 2;
+  });
 
-    setState(() => _currentStep = 2);
+  final unclassified =
+      results.where((r) => r.subject == 'Unclassified').length;
+  final noInternet = results.any((r) => r.subject == 'No Internet');
 
-    _log('--- GEMINI BATCH PHASE START ---');
-    _log('Sending ${ocrResults.length} OCR results to Gemini in ONE request...');
-    List<({String subject, double confidence})> results;
-    try {
-      results = await ClassifierService.classifyAllFromOcr(
-        ocrResults,
-        subjects,
-        onLog: _log,
-        onProgress: (completed, total) {
-          _log('Gemini progress: $completed/$total');
-        },
-      );
-      _log('--- GEMINI BATCH PHASE END ---');
-      _log('Gemini returned ${results.length} results for ${ocrResults.length} photos');
-      for (int i = 0; i < results.length; i++) {
-        _log('Gemini result[$i]: subject="${results[i].subject}" confidence=${(results[i].confidence * 100).toStringAsFixed(0)}%');
-      }
-      if (results.length != ocrResults.length) {
-        _log('WARNING: Gemini returned ${results.length} results but expected ${ocrResults.length}');
-      }
-    } catch (e) {
-      _log('Classification failed: $e');
-      return;
-    }
+  if (noInternet) {
+    _setStatus('No internet — connect and re-upload to classify',
+        icon: Icons.wifi_off_rounded, isError: true);
+  } else if (unclassified > 0) {
+    _setStatus(
+      '${results.length - unclassified} classified, $unclassified need manual review',
+      icon: Icons.warning_amber_rounded,
+      isError: true,
+    );
+  } else {
+    _setStatus(
+      'All ${results.length} photo${results.length > 1 ? 's' : ''} classified — ready to save!',
+      icon: Icons.check_circle_rounded,
+    );
+  }
+}Future<void> _pickFromCamera() async {
+  if (_selectedPhotos.length >= _maxPhotos) {
+    _showSnack('Max $_maxPhotos photos per session reached', isError: true);
+    return;
+  }
+  final hasCam = await PermissionService.requestCameraPermission();
+  if (!hasCam) {
+    _showSnack('Camera permission required', isError: true);
+    return;
+  }
+  final xFile = await _picker.pickImage(
+      source: ImageSource.camera, imageQuality: 90);
+  if (xFile == null) return;
 
-    _log('--- UI UPDATE PHASE ---');
+  setState(() => _currentStep = 1);
+
+  final entry = {
+    'path': xFile.path,
+    'ocrText': '',
+    'subject': '',
+    'confidence': 0.0,
+    'override': null,
+    'isProcessing': true,
+  };
+  setState(() => _selectedPhotos.add(entry));
+
+  // AUTO-CLASSIFY OFF 
+  if (!_autoClassify) {
     setState(() {
-      for (int i = 0; i < paths.length; i++) {
-        final idx = startIdx + i;
-        if (idx >= _selectedPhotos.length) {
-          _log('SKIP idx=$idx out of bounds (total=${_selectedPhotos.length})');
-          continue;
-        }
-        final ocr = ocrResults[i];
-        final result = i < results.length
-            ? results[i]
-            : (subject: 'Unclassified', confidence: 0.0);
-        _log('Applying result[$i] to photo idx=$idx: subject="${result.subject}"');
-        if (result.subject == 'No Internet') {
-          _selectedPhotos[idx]['ocrText'] = 'Connect to internet to classify';
-          _selectedPhotos[idx]['subject'] = 'Unclassified';
-          _selectedPhotos[idx]['confidence'] = 0.0;
-        } else {
-          _selectedPhotos[idx]['ocrText'] = ocr.keywords.isNotEmpty
-              ? ocr.keywords.take(8).join(', ')
-              : 'No text detected';
-          _selectedPhotos[idx]['subject'] = result.subject;
-          _selectedPhotos[idx]['confidence'] = result.confidence;
-        }
+      final idx = _selectedPhotos.indexOf(entry);
+      if (idx != -1) {
+        _selectedPhotos[idx]['subject'] = 'Unclassified';
+        _selectedPhotos[idx]['confidence'] = 0.0;
+        _selectedPhotos[idx]['ocrText'] = 'Auto-classify disabled';
         _selectedPhotos[idx]['isProcessing'] = false;
       }
       _currentStep = 2;
     });
-    _log('--- UI UPDATE DONE ---');
-
-    if (results.any((r) => r.subject == 'No Internet')) {
-      _showSnack('No internet. Connect to classify photos', isError: true);
-    }
+    _setStatus(
+      'Auto-classify is off — set subject manually',
+      icon: Icons.info_outline_rounded,
+    );
+    return;
   }
 
-  Future<void> _pickFromCamera() async {
-    _log('Camera picker started');
+  // OCR + CLASSIFY
+  _setStatus('Scanning photo for text...',
+      icon: Icons.document_scanner_rounded);
 
-    if (_selectedPhotos.length >= _maxPhotos) {
-      _showSnack('Max $_maxPhotos photos per session reached', isError: true);
-      return;
-    }
+  try {
+    final ocrResult = await OcrService.extractRich(xFile.path);
+    _log('OCR done: ${ocrResult.keywords.length} keywords');
 
-    final hasCam = await PermissionService.requestCameraPermission();
-    _log('Camera permission: $hasCam');
-    if (!hasCam) {
-      _showSnack('Camera permission required', isError: true);
-      return;
-    }
+    _setStatus('Classifying with AI...', icon: Icons.auto_awesome_rounded);
 
-    final xFile = await _picker.pickImage(
-        source: ImageSource.camera, imageQuality: 90);
-    if (xFile == null) {
-      _log('No photo taken');
-      return;
-    }
+    final subjects = _allSubjects.where((s) => s != 'Unclassified').toList();
+    final match = await ClassifierService.classify(ocrResult, subjects);
+    _log('Single result: ${match.subject} (${match.confidence})');
 
-    _log('Photo taken: ${xFile.path}');
-    setState(() => _currentStep = 1);
+    setState(() {
+      final idx = _selectedPhotos.indexOf(entry);
+      if (idx != -1) {
+        _selectedPhotos[idx]['ocrText'] = ocrResult.keywords.isNotEmpty
+            ? ocrResult.keywords.take(8).join(', ')
+            : 'No text detected';
+        _selectedPhotos[idx]['subject'] = match.subject;
+        _selectedPhotos[idx]['confidence'] = match.confidence;
+        _selectedPhotos[idx]['isProcessing'] = false;
+      }
+    });
 
-    final entry = {
-      'path': xFile.path,
-      'ocrText': '',
-      'subject': '',
-      'confidence': 0.0,
-      'override': null,
-      'isProcessing': true,
-    };
-    setState(() => _selectedPhotos.add(entry));
-
-    try {
-      _log('Running OCR...');
-      final ocrResult = await OcrService.extractRich(xFile.path);
-      _log('OCR done: ${ocrResult.keywords.length} keywords');
-      _log('keywords: ${ocrResult.keywords.take(8).toList()}');
-      _log('rawLen: ${ocrResult.rawText.length}');
-
-      final subjects = _allSubjects.where((s) => s != 'Unclassified').toList();
-      _log('Classifying single into: $subjects');
-
-      final match = await ClassifierService.classify(ocrResult, subjects);
-      _log('Single result: ${match.subject} (${match.confidence})');
-
-      setState(() {
-        final idx = _selectedPhotos.indexOf(entry);
-        if (idx != -1) {
-          _selectedPhotos[idx]['ocrText'] = ocrResult.keywords.isNotEmpty
-              ? ocrResult.keywords.take(8).join(', ')
-              : 'No text detected';
-          _selectedPhotos[idx]['subject'] = match.subject;
-          _selectedPhotos[idx]['confidence'] = match.confidence;
-          _selectedPhotos[idx]['isProcessing'] = false;
-        }
-      });
-    } catch (e) {
-      _log('Camera classify error: $e');
-      setState(() {
-        final idx = _selectedPhotos.indexOf(entry);
-        if (idx != -1) {
-          _selectedPhotos[idx]['ocrText'] = 'Processing failed';
-          _selectedPhotos[idx]['subject'] = 'Unclassified';
-          _selectedPhotos[idx]['confidence'] = 0.0;
-          _selectedPhotos[idx]['isProcessing'] = false;
-        }
-      });
-    }
+    _setStatus(
+      'Photo classified as ${match.subject} — ready to save!',
+      icon: Icons.check_circle_rounded,
+    );
+  } catch (e) {
+    _log('Camera classify error: $e');
+    setState(() {
+      final idx = _selectedPhotos.indexOf(entry);
+      if (idx != -1) {
+        _selectedPhotos[idx]['ocrText'] = 'Processing failed';
+        _selectedPhotos[idx]['subject'] = 'Unclassified';
+        _selectedPhotos[idx]['confidence'] = 0.0;
+        _selectedPhotos[idx]['isProcessing'] = false;
+      }
+    });
+    _setStatus('Processing failed — set subject manually',
+        icon: Icons.error_outline_rounded, isError: true);
   }
-
+}
   void _showPickOptions() {
     if (_selectedPhotos.length >= _maxPhotos) {
       _showSnack('Max $_maxPhotos photos per session reached', isError: true);
@@ -387,23 +482,29 @@ class _UploadScreenState extends State<UploadScreen>
           size: 13, color: Colors.grey.shade400),
     );
   }
+Future<void> _confirmAndSave() async {
+  if (_basePath == null) {
+    _showSnack('No storage path set.', isError: true);
+    return;
+  }
+  HapticFeedback.mediumImpact();
+  setState(() {
+    _isSaving = true;
+    _currentStep = 3;
+  });
 
-  Future<void> _confirmAndSave() async {
-    if (_basePath == null) {
-      _showSnack('No storage path set.', isError: true);
-      return;
-    }
-    setState(() {
-      _isSaving = true;
-      _currentStep = 3;
-    });
-    int saved = 0;
-    int failed = 0;
-    for (final photo in _selectedPhotos) {
-      final subject =
-          photo['override'] as String? ?? photo['subject'] as String;
-      final path = photo['path'] as String;
-      await StorageService.createSubjectFolder(_basePath!, subject);
+  int saved = 0;
+  int failed = 0;
+
+  for (final photo in _selectedPhotos) {
+    final subject =
+        photo['override'] as String? ?? photo['subject'] as String;
+    final path = photo['path'] as String;
+
+    await StorageService.createSubjectFolder(_basePath!, subject);
+
+    if (_saveOriginal) {
+      //KEEP ORIGINAL: copy to subject folder, source stays untouched
       final result = await StorageService.savePhotoToSubject(
         sourcePath: path,
         basePath: _basePath!,
@@ -414,24 +515,70 @@ class _UploadScreenState extends State<UploadScreen>
       } else {
         failed++;
       }
-    }
-    setState(() => _isSaving = false);
-    if (mounted) {
-      if (failed == 0) {
-        _showSnack('$saved photo${saved > 1 ? 's' : ''} saved successfully!');
-        await Future.delayed(const Duration(milliseconds: 800));
-        Navigator.pushReplacementNamed(context, '/home');
+    } else {
+      //MOVE: copy to subject folder then delete original to save space
+      final result = await StorageService.movePhotoToSubject(
+        sourcePath: path,
+        basePath: _basePath!,
+        newSubject: subject,
+      );
+      if (result != null) {
+        saved++;
       } else {
-        _showSnack('$saved saved, $failed failed.', isError: true);
+        failed++;
       }
     }
   }
 
+  setState(() => _isSaving = false);
+
+  if (mounted) {
+    if (failed == 0) {
+      HapticFeedback.heavyImpact();
+      _showSnack('$saved photo${saved > 1 ? 's' : ''} saved successfully!');
+      await Future.delayed(const Duration(milliseconds: 800));
+      Navigator.pushReplacementNamed(context, '/home');
+    } else {
+      _showSnack('$saved saved, $failed failed.', isError: true);
+    }
+  }
+}
+
+  // FIX: undo remove — holds removed photo for 4s, restores if user taps undo
   void _removePhoto(int index) {
+    HapticFeedback.lightImpact();
+    final removed = Map<String, dynamic>.from(_selectedPhotos[index]);
+    final removedIndex = index;
+
     setState(() {
       _selectedPhotos.removeAt(index);
       if (_selectedPhotos.isEmpty) _currentStep = 0;
     });
+
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Photo removed'),
+        backgroundColor: const Color(0xFF035955),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: const Duration(seconds: 4),
+        action: SnackBarAction(
+          label: 'Undo',
+          textColor: Colors.white,
+          onPressed: () {
+            HapticFeedback.selectionClick();
+            setState(() {
+              // reinsert at original position (clamped in case list shrank)
+              final insertAt =
+                  removedIndex.clamp(0, _selectedPhotos.length);
+              _selectedPhotos.insert(insertAt, removed);
+              if (_selectedPhotos.isNotEmpty) _currentStep = 2;
+            });
+          },
+        ),
+      ),
+    );
   }
 
   void _showSnack(String msg, {bool isError = false}) {
@@ -461,7 +608,9 @@ class _UploadScreenState extends State<UploadScreen>
                 children: [
                   const SizedBox(height: 24),
                   _buildUploadZone(),
-                  if (_debugLines.isNotEmpty)
+
+                  // debug panel — only visible in debug builds
+                  if (kDebugMode && _debugLines.isNotEmpty)
                     Container(
                       margin: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                       padding: const EdgeInsets.all(12),
@@ -498,6 +647,7 @@ class _UploadScreenState extends State<UploadScreen>
                         ],
                       ),
                     ),
+
                   if (_selectedPhotos.isNotEmpty) ...[
                     const SizedBox(height: 24),
                     _buildSectionHeader(
@@ -505,6 +655,7 @@ class _UploadScreenState extends State<UploadScreen>
                         Icons.photo_library_rounded,
                         '${_selectedPhotos.length}/$_maxPhotos'),
                     const SizedBox(height: 14),
+                     _buildStatusBanner(), 
                     _buildPhotoStrip(),
                     const SizedBox(height: 24),
                     _buildSectionHeader('Classification Preview',
@@ -559,7 +710,10 @@ class _UploadScreenState extends State<UploadScreen>
               Row(
                 children: [
                   GestureDetector(
-                    onTap: () => Navigator.maybePop(context),
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      Navigator.maybePop(context);
+                    },
                     child: Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
@@ -578,7 +732,7 @@ class _UploadScreenState extends State<UploadScreen>
                             fontSize: 20,
                             fontWeight: FontWeight.bold)),
                   ),
-                  // FIX: photo counter in top-right corner of header
+                  // photo counter top-right
                   Container(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 12, vertical: 6),
@@ -714,17 +868,14 @@ class _UploadScreenState extends State<UploadScreen>
                   atLimit
                       ? Icons.block_rounded
                       : Icons.add_photo_alternate_rounded,
-                  color: atLimit
-                      ? Colors.grey.shade400
-                      : const Color(0xFF89B0AE),
+                  color:
+                      atLimit ? Colors.grey.shade400 : const Color(0xFF89B0AE),
                   size: 38,
                 ),
               ),
               const SizedBox(height: 14),
               Text(
-                atLimit
-                    ? 'Session limit reached'
-                    : 'Tap to select photos',
+                atLimit ? 'Session limit reached' : 'Tap to select photos',
                 style: TextStyle(
                     color: atLimit ? Colors.grey : AppColors.bodyText,
                     fontWeight: FontWeight.bold,
@@ -734,7 +885,7 @@ class _UploadScreenState extends State<UploadScreen>
               Text(
                 atLimit
                     ? 'Save & confirm these $_maxPhotos photos first'
-                    : 'You can only upload 20 images per session -  $remaining of $_maxPhotos slots remaining this session /n',
+                    : '$remaining of $_maxPhotos slots remaining this session',
                 style: TextStyle(
                     color: atLimit ? Colors.grey.shade400 : Colors.grey,
                     fontSize: 12),
@@ -827,7 +978,59 @@ class _UploadScreenState extends State<UploadScreen>
       ),
     );
   }
+  Widget _buildStatusBanner() {
+  if (_statusMessage == null) return const SizedBox.shrink();
 
+  return AnimatedContainer(
+    duration: const Duration(milliseconds: 300),
+    margin: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    decoration: BoxDecoration(
+      color: _statusIsError
+          ? const Color(0xFFE07A5F).withOpacity(0.1)
+          : const Color(0xFF035955).withOpacity(0.08),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(
+        color: _statusIsError
+            ? const Color(0xFFE07A5F).withOpacity(0.3)
+            : const Color(0xFF89B0AE).withOpacity(0.4),
+      ),
+    ),
+    child: Row(
+      children: [
+        // animated spinner for active processing, static icon otherwise
+        if (!_statusIsError && (_currentStep == 1 || _currentStep == 2))
+          const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Color(0xFF035955),
+            ),
+          )
+        else
+          Icon(_statusIcon,
+              size: 16,
+              color: _statusIsError
+                  ? const Color(0xFFE07A5F)
+                  : const Color(0xFF035955)),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            _statusMessage!,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: _statusIsError
+                  ? const Color(0xFFE07A5F)
+                  : const Color(0xFF035955),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
   Widget _buildPhotoStrip() {
     return SizedBox(
       height: 100,
@@ -874,42 +1077,61 @@ class _UploadScreenState extends State<UploadScreen>
 
           return Stack(
             children: [
-              Container(
-                width: 82,
-                margin: const EdgeInsets.only(right: 10),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  boxShadow: const [
-                    BoxShadow(
-                        color: Color(0x1A000000),
-                        blurRadius: 6,
-                        offset: Offset(0, 2)),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(14),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      Image.file(
-                        File(photo['path'] as String),
-                        fit: BoxFit.cover,
-                      ),
-                      if (isProcessing)
-                        Container(
-                          color: Colors.black45,
-                          child: const Center(
-                            child: SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                color: Colors.white,
-                                strokeWidth: 2,
+              // FIX: tap thumbnail opens viewer
+              GestureDetector(
+                onTap: isProcessing ? null : () => _openViewer(index),
+                child: Container(
+                  width: 82,
+                  margin: const EdgeInsets.only(right: 10),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: const [
+                      BoxShadow(
+                          color: Color(0x1A000000),
+                          blurRadius: 6,
+                          offset: Offset(0, 2)),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Image.file(
+                          File(photo['path'] as String),
+                          fit: BoxFit.cover,
+                        ),
+                        if (isProcessing)
+                          Container(
+                            color: Colors.black45,
+                            child: const Center(
+                              child: SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                    ],
+                        // zoom hint overlay on non-processing thumbnails
+                        if (!isProcessing)
+                          Positioned(
+                            bottom: 4,
+                            left: 4,
+                            child: Container(
+                              padding: const EdgeInsets.all(3),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.35),
+                                borderRadius: BorderRadius.circular(5),
+                              ),
+                              child: const Icon(Icons.zoom_in_rounded,
+                                  color: Colors.white, size: 10),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -936,45 +1158,122 @@ class _UploadScreenState extends State<UploadScreen>
     );
   }
 
-  Widget _buildClassificationList() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
-        children: _selectedPhotos.asMap().entries.map((entry) {
-          final index = entry.key;
-          final photo = entry.value;
-          final isExpanded = _expandedIndex == index;
-          final isProcessing = photo['isProcessing'] as bool;
-          final subject =
-              photo['override'] as String? ?? photo['subject'] as String;
-          final confidence = photo['confidence'] as double;
+Widget _buildClassificationList() {
+  return Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 20),
+    child: Column(
+      children: _selectedPhotos.asMap().entries.map((entry) {
+        final index = entry.key;
+        final photo = entry.value;
+        final isExpanded = _expandedIndex == index;
+        final isProcessing = photo['isProcessing'] as bool;
+        final subject =
+            photo['override'] as String? ?? photo['subject'] as String;
+        final confidence = photo['confidence'] as double;
 
-          return AnimatedContainer(
-            duration: const Duration(milliseconds: 250),
-            margin: const EdgeInsets.only(bottom: 12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isExpanded
-                    ? const Color(0xFF89B0AE)
-                    : const Color(0xFFEEEEEE),
-                width: isExpanded ? 1.5 : 1,
-              ),
-              boxShadow: const [
-                BoxShadow(
-                    color: Color(0x08000000),
-                    blurRadius: 8,
-                    offset: Offset(0, 2)),
-              ],
+        final isLowConfidence = !isProcessing &&
+            photo['override'] == null &&
+            confidence < _lowConfidenceThreshold &&
+            confidence > 0.0;
+
+        final hasNoText = !isProcessing &&
+            ((photo['ocrText'] as String).isEmpty ||
+                (photo['ocrText'] as String) == 'No text detected');
+
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isLowConfidence
+                  ? const Color(0xFFE07A5F).withOpacity(0.4)
+                  : isExpanded
+                      ? const Color(0xFF89B0AE)
+                      : const Color(0xFFEEEEEE),
+              width: isLowConfidence || isExpanded ? 1.5 : 1,
             ),
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Row(
+            boxShadow: const [
+              BoxShadow(
+                  color: Color(0x08000000),
+                  blurRadius: 8,
+                  offset: Offset(0, 2)),
+            ],
+          ),
+          child: Column(
+            children: [
+              // LOW CONFIDENCE WARNING
+              if (isLowConfidence)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE07A5F).withOpacity(0.08),
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(15),
+                      topRight: Radius.circular(15),
+                    ),
+                  ),
+                  child: const Row(
                     children: [
-                      ClipRRect(
+                      Icon(Icons.warning_amber_rounded,
+                          color: Color(0xFFE07A5F), size: 13),
+                      SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Low confidence — tap ↓ to set subject manually',
+                          style: TextStyle(
+                              color: Color(0xFFE07A5F),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              //  NO TEXT WARNING 
+              if (hasNoText)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.08),
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(isLowConfidence ? 0 : 15),
+                      topRight: Radius.circular(isLowConfidence ? 0 : 15),
+                    ),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.text_fields_rounded,
+                          color: Colors.orange, size: 13),
+                      SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'No text detected — try rotating or retaking',
+                          style: TextStyle(
+                              color: Colors.orange,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // main row
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  children: [
+                    // thumbnail
+                    GestureDetector(
+                      onTap: isProcessing ? null : () => _openViewer(index),
+                      child: ClipRRect(
                         borderRadius: BorderRadius.circular(10),
                         child: SizedBox(
                           width: 52,
@@ -993,81 +1292,110 @@ class _UploadScreenState extends State<UploadScreen>
                                     ),
                                   ),
                                 )
-                              : Image.file(
-                                  File(photo['path'] as String),
-                                  fit: BoxFit.cover,
+                              : Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    Image.file(
+                                      File(photo['path'] as String),
+                                      fit: BoxFit.cover,
+                                    ),
+                                    Positioned(
+                                      bottom: 2,
+                                      right: 2,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(2),
+                                        decoration: BoxDecoration(
+                                          color:
+                                              Colors.black.withOpacity(0.35),
+                                          borderRadius:
+                                              BorderRadius.circular(4),
+                                        ),
+                                        child: const Icon(
+                                            Icons.zoom_in_rounded,
+                                            color: Colors.white,
+                                            size: 9),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: isProcessing
-                            ? Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text('Scanning...',
-                                      style: TextStyle(
-                                          color: Colors.grey, fontSize: 12)),
-                                  const SizedBox(height: 6),
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(4),
-                                    child: LinearProgressIndicator(
-                                      backgroundColor: Colors.grey.shade200,
-                                      color: const Color(0xFF89B0AE),
-                                      minHeight: 4,
-                                    ),
+                    ),
+                    const SizedBox(width: 12),
+
+                    // info column
+                    Expanded(
+                      child: isProcessing
+                          ? Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Scanning...',
+                                    style: TextStyle(
+                                        color: Colors.grey, fontSize: 12)),
+                                const SizedBox(height: 6),
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: LinearProgressIndicator(
+                                    backgroundColor: Colors.grey.shade200,
+                                    color: const Color(0xFF89B0AE),
+                                    minHeight: 4,
                                   ),
-                                ],
-                              )
-                            : Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('Photo ${index + 1}',
-                                      style: const TextStyle(
-                                          color: Colors.grey, fontSize: 11)),
-                                  const SizedBox(height: 4),
-                                  Row(
-                                    children: [
+                                ),
+                              ],
+                            )
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Photo ${index + 1}',
+                                    style: const TextStyle(
+                                        color: Colors.grey, fontSize: 11)),
+                                const SizedBox(height: 4),
+
+                                // subject chip + edited badge
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 10, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: subject == 'Unclassified'
+                                            ? const Color(0xFFE07A5F)
+                                            : const Color(0xFF89B0AE),
+                                        borderRadius:
+                                            BorderRadius.circular(20),
+                                      ),
+                                      child: Text(
+                                        subject.isEmpty
+                                            ? 'Classifying...'
+                                            : subject,
+                                        style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                    if (photo['override'] != null) ...[
+                                      const SizedBox(width: 6),
                                       Container(
                                         padding: const EdgeInsets.symmetric(
-                                            horizontal: 10, vertical: 4),
+                                            horizontal: 6, vertical: 2),
                                         decoration: BoxDecoration(
-                                          color: subject == 'Unclassified'
-                                              ? const Color(0xFFE07A5F)
-                                              : const Color(0xFF89B0AE),
+                                          color: const Color(0xFFFFF3CD),
                                           borderRadius:
-                                              BorderRadius.circular(20),
+                                              BorderRadius.circular(6),
                                         ),
-                                        child: Text(
-                                          subject.isEmpty
-                                              ? 'Classifying...'
-                                              : subject,
-                                          style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.bold),
-                                        ),
+                                        child: const Text('Edited',
+                                            style: TextStyle(
+                                                color: Color(0xFF856404),
+                                                fontSize: 9,
+                                                fontWeight:
+                                                    FontWeight.bold)),
                                       ),
-                                      if (photo['override'] != null) ...[
-                                        const SizedBox(width: 6),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 6, vertical: 2),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFFFFF3CD),
-                                            borderRadius:
-                                                BorderRadius.circular(6),
-                                          ),
-                                          child: const Text('Edited',
-                                              style: TextStyle(
-                                                  color: Color(0xFF856404),
-                                                  fontSize: 9,
-                                                  fontWeight:
-                                                      FontWeight.bold)),
-                                        ),
-                                      ],
                                     ],
-                                  ),
+                                  ],
+                                ),
+                                //  CONFIDENCE BAR (respects toggle) 
+                                if (_showConfidence) ...[
                                   const SizedBox(height: 6),
                                   Row(
                                     children: [
@@ -1101,120 +1429,133 @@ class _UploadScreenState extends State<UploadScreen>
                                       ),
                                     ],
                                   ),
-                                  if ((photo['ocrText'] as String)
-                                      .isNotEmpty) ...[
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      'OCR: ${(photo['ocrText'] as String).substring(0, ((photo['ocrText'] as String).length).clamp(0, 60))}...',
-                                      style: const TextStyle(
-                                          color: Colors.grey, fontSize: 10),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ],
                                 ],
-                              ),
-                      ),
-                      if (!isProcessing) ...[
-                        const SizedBox(width: 8),
-                        GestureDetector(
-                          onTap: () => setState(() =>
-                              _expandedIndex = isExpanded ? null : index),
-                          child: AnimatedRotation(
-                            turns: isExpanded ? 0.5 : 0,
-                            duration: const Duration(milliseconds: 200),
-                            child: Container(
-                              padding: const EdgeInsets.all(6),
-                              decoration: BoxDecoration(
-                                color: isExpanded
-                                    ? const Color(0xFF89B0AE).withOpacity(0.1)
-                                    : Colors.grey.shade100,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Icon(
-                                Icons.keyboard_arrow_down_rounded,
-                                color: isExpanded
-                                    ? const Color(0xFF89B0AE)
-                                    : Colors.grey,
-                                size: 20,
-                              ),
+
+                                // OCR keywords
+                                if ((photo['ocrText'] as String)
+                                    .isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'OCR: ${(photo['ocrText'] as String).substring(0, ((photo['ocrText'] as String).length).clamp(0, 60))}...',
+                                    style: const TextStyle(
+                                        color: Colors.grey, fontSize: 10),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ],
+                            ),
+                    ),
+
+                    // expand/collapse chevron
+                    if (!isProcessing) ...[
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          setState(() =>
+                              _expandedIndex = isExpanded ? null : index);
+                        },
+                        child: AnimatedRotation(
+                          turns: isExpanded ? 0.5 : 0,
+                          duration: const Duration(milliseconds: 200),
+                          child: Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: isExpanded
+                                  ? const Color(0xFF89B0AE).withOpacity(0.1)
+                                  : Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(
+                              Icons.keyboard_arrow_down_rounded,
+                              color: isExpanded
+                                  ? const Color(0xFF89B0AE)
+                                  : Colors.grey,
+                              size: 20,
                             ),
                           ),
                         ),
-                      ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              // EXPANDED OVERRIDE PANEL
+              if (isExpanded && !isProcessing) ...[
+                Container(height: 1, color: const Color(0xFFEEEEEE)),
+                Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Override subject:',
+                          style: TextStyle(
+                              color: Colors.grey,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500)),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _allSubjects.map((s) {
+                          final isSel =
+                              (photo['override'] ?? photo['subject']) == s;
+                          return GestureDetector(
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              setState(() {
+                                _selectedPhotos[index]['override'] = s;
+                                _expandedIndex = null;
+                              });
+                            },
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 150),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: isSel
+                                    ? const Color(0xFF89B0AE)
+                                    : Colors.white,
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: isSel
+                                      ? const Color(0xFF89B0AE)
+                                      : Colors.grey.shade300,
+                                ),
+                              ),
+                              child: Text(s,
+                                  style: TextStyle(
+                                      color: isSel
+                                          ? Colors.white
+                                          : Colors.grey.shade700,
+                                      fontSize: 12,
+                                      fontWeight: isSel
+                                          ? FontWeight.bold
+                                          : FontWeight.normal)),
+                            ),
+                          );
+                        }).toList(),
+                      ),
                     ],
                   ),
                 ),
-                if (isExpanded && !isProcessing) ...[
-                  Container(height: 1, color: const Color(0xFFEEEEEE)),
-                  Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Override subject:',
-                            style: TextStyle(
-                                color: Colors.grey,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500)),
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: _allSubjects.map((s) {
-                            final isSel =
-                                (photo['override'] ?? photo['subject']) == s;
-                            return GestureDetector(
-                              onTap: () => setState(() {
-                                _selectedPhotos[index]['override'] = s;
-                                _expandedIndex = null;
-                              }),
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 150),
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: isSel
-                                      ? const Color(0xFF89B0AE)
-                                      : Colors.white,
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(
-                                    color: isSel
-                                        ? const Color(0xFF89B0AE)
-                                        : Colors.grey.shade300,
-                                  ),
-                                ),
-                                child: Text(s,
-                                    style: TextStyle(
-                                        color: isSel
-                                            ? Colors.white
-                                            : Colors.grey.shade700,
-                                        fontSize: 12,
-                                        fontWeight: isSel
-                                            ? FontWeight.bold
-                                            : FontWeight.normal)),
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
               ],
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
+            ],
+          ),
+        );
+      }).toList(),
+    ),
+  );
+}
 
   Widget _buildBottomActions() {
     final anyProcessing =
         _selectedPhotos.any((p) => p['isProcessing'] as bool);
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+      padding: EdgeInsets.fromLTRB(20, 12, 20, MediaQuery.of(context).padding.bottom + 12),
       decoration: BoxDecoration(
         color: AppColors.background,
         boxShadow: [
@@ -1228,7 +1569,10 @@ class _UploadScreenState extends State<UploadScreen>
         children: [
           Expanded(
             child: OutlinedButton(
-              onPressed: () => Navigator.maybePop(context),
+              onPressed: () {
+                HapticFeedback.lightImpact();
+                Navigator.maybePop(context);
+              },
               style: OutlinedButton.styleFrom(
                 side: BorderSide(color: Colors.grey.shade400),
                 shape: RoundedRectangleBorder(
@@ -1293,3 +1637,4 @@ class _UploadScreenState extends State<UploadScreen>
     );
   }
 }
+

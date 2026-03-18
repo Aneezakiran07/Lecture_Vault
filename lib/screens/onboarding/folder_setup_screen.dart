@@ -110,6 +110,8 @@ class _FolderSetupScreenState extends State<FolderSetupScreen> {
                 borderRadius: BorderRadius.circular(12)),
           ),
         );
+        // inside _continue(), just before Navigator
+        await StorageService.markSetupDone(); //
         await Future.delayed(const Duration(milliseconds: 800));
         Navigator.pushReplacementNamed(context, '/home');
       } else {

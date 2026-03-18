@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import '../../core/constants/colors.dart';
 import '../../services/storage_service.dart';
 
@@ -14,13 +15,16 @@ class _HomeScreenState extends State<HomeScreen>
   late AnimationController _fabAnimController;
   late Animation<double> _fabScaleAnim;
 
-  int _selectedNavIndex = 0;
+  // always 0 because home is always the active screen
+  final int _selectedNavIndex = 0;
 
   List<String> _subjects = [];
   String? _basePath;
   Map<String, int> _photoCounts = {};
   int _totalPhotos = 0;
   bool _isLoading = true;
+
+  final TextEditingController _newSubjectController = TextEditingController();
 
   final List<IconData> _subjectIcons = [
     Icons.calculate_rounded,
@@ -76,6 +80,13 @@ class _HomeScreenState extends State<HomeScreen>
     _loadData();
   }
 
+  @override
+  void dispose() {
+    _fabAnimController.dispose();
+    _newSubjectController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
 
@@ -104,10 +115,122 @@ class _HomeScreenState extends State<HomeScreen>
     });
   }
 
-  @override
-  void dispose() {
-    _fabAnimController.dispose();
-    super.dispose();
+  // add subject and save to prefs
+  Future<void> _addSubject(String name) async {
+    if (name.isEmpty || _subjects.contains(name)) return;
+    final updated = [..._subjects, name];
+    await StorageService.saveSubjects(updated);
+    if (_basePath != null) {
+      await StorageService.createSubjectFolder(_basePath!, name);
+    }
+    await _loadData();
+    _showSnack('Subject "$name" added');
+  }
+
+  // delete subject and save to prefs
+  Future<void> _deleteSubject(String name) async {
+    final updated = [..._subjects]..remove(name);
+    await StorageService.saveSubjects(updated);
+    await _loadData();
+    _showSnack('Subject "$name" removed');
+  }
+
+  void _showAddSubjectDialog() {
+    _newSubjectController.clear();
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Add Subject',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        content: TextField(
+          controller: _newSubjectController,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          decoration: InputDecoration(
+            hintText: 'Subject name...',
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            border:
+                OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide:
+                  const BorderSide(color: Color(0xFF89B0AE), width: 2),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Cancel',
+                style: TextStyle(color: Colors.grey.shade600)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final name = _newSubjectController.text.trim();
+              Navigator.pop(context);
+              _addSubject(name);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF89B0AE),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDeleteSubjectDialog(String name) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Remove Subject',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        content: Text(
+          'Remove "$name" from your subjects? Photos inside will not be deleted.',
+          style: const TextStyle(fontSize: 13, color: Colors.grey),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Cancel',
+                style: TextStyle(color: Colors.grey.shade600)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _deleteSubject(name);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE07A5F),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showSnack(String msg, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor:
+          isError ? const Color(0xFFE07A5F) : const Color(0xFF035955),
+      behavior: SnackBarBehavior.floating,
+      shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    ));
   }
 
   @override
@@ -393,20 +516,38 @@ class _HomeScreenState extends State<HomeScreen>
                   fontWeight: FontWeight.bold,
                   fontSize: 15),
             ),
-            Container(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                '${_subjects.length} folder${_subjects.length != 1 ? 's' : ''}',
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600),
-              ),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '${_subjects.length} folder${_subjects.length != 1 ? 's' : ''}',
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // add folder button in section header
+                GestureDetector(
+                  onTap: _showAddSubjectDialog,
+                  child: Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.add_rounded,
+                        color: Colors.white, size: 16),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -451,6 +592,7 @@ class _HomeScreenState extends State<HomeScreen>
           'basePath': _basePath,
         },
       ).then((_) => _loadData()),
+      onLongPress: () => _showDeleteSubjectDialog(subject),
       borderRadius: BorderRadius.circular(18),
       child: Container(
         padding: const EdgeInsets.all(16),
@@ -479,8 +621,19 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                   child: Icon(icon, color: iconColor, size: 22),
                 ),
-                Icon(Icons.arrow_forward_ios_rounded,
-                    color: Colors.grey.shade300, size: 14),
+                // delete button on each card
+                GestureDetector(
+                  onTap: () => _showDeleteSubjectDialog(subject),
+                  child: Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE07A5F).withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.delete_outline_rounded,
+                        color: Color(0xFFE07A5F), size: 14),
+                  ),
+                ),
               ],
             ),
             const Spacer(),
@@ -502,8 +655,8 @@ class _HomeScreenState extends State<HomeScreen>
                 const SizedBox(width: 4),
                 Text(
                   '$count photo${count != 1 ? 's' : ''}',
-                  style:
-                      TextStyle(color: Colors.grey.shade500, fontSize: 11),
+                  style: TextStyle(
+                      color: Colors.grey.shade500, fontSize: 11),
                 ),
               ],
             ),
@@ -536,16 +689,13 @@ class _HomeScreenState extends State<HomeScreen>
                     fontSize: 18)),
             const SizedBox(height: 8),
             Text(
-              'Go to Settings to add your first subject folder',
+              'Tap the button below to add your first subject',
               textAlign: TextAlign.center,
-              style:
-                  TextStyle(color: Colors.grey.shade500, fontSize: 13),
+              style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
             ),
             const SizedBox(height: 24),
             ElevatedButton.icon(
-              onPressed: () =>
-                  Navigator.pushNamed(context, '/settings')
-                      .then((_) => _loadData()),
+              onPressed: _showAddSubjectDialog,
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.headerCard,
                 foregroundColor: Colors.white,
@@ -554,8 +704,8 @@ class _HomeScreenState extends State<HomeScreen>
                 padding: const EdgeInsets.symmetric(
                     horizontal: 24, vertical: 12),
               ),
-              icon: const Icon(Icons.settings_rounded, size: 18),
-              label: const Text('Go to Settings',
+              icon: const Icon(Icons.add_rounded, size: 18),
+              label: const Text('Add Subject',
                   style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ],
@@ -578,8 +728,7 @@ class _HomeScreenState extends State<HomeScreen>
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(
-              horizontal: 20, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
@@ -594,10 +743,10 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _navItem(IconData icon, String label, int index) {
+    // home screen is always index 0 so only home is ever highlighted
     final isSelected = _selectedNavIndex == index;
     return GestureDetector(
       onTap: () async {
-        setState(() => _selectedNavIndex = index);
         if (index == 1) {
           await Navigator.pushNamed(context, '/upload');
           _loadData();
@@ -609,8 +758,7 @@ class _HomeScreenState extends State<HomeScreen>
       },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding:
-            const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         decoration: BoxDecoration(
           color: isSelected
               ? AppColors.headerCard.withOpacity(0.1)
@@ -641,6 +789,4 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
   }
-}
-
- 
+} 

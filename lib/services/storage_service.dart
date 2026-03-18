@@ -173,4 +173,27 @@ class StorageService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
   }
+  static const _autoClassifyKey = 'auto_classify';
+static const _showConfidenceKey = 'show_confidence';
+static const _saveOriginalKey = 'save_original';
+
+static Future<void> saveClassificationSettings({
+  required bool autoClassify,
+  required bool showConfidence,
+  required bool saveOriginal,
+}) async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setBool(_autoClassifyKey, autoClassify);
+  await prefs.setBool(_showConfidenceKey, showConfidence);
+  await prefs.setBool(_saveOriginalKey, saveOriginal);
+}
+
+static Future<Map<String, bool>> getClassificationSettings() async {
+  final prefs = await SharedPreferences.getInstance();
+  return {
+    'autoClassify': prefs.getBool(_autoClassifyKey) ?? true,
+    'showConfidence': prefs.getBool(_showConfidenceKey) ?? true,
+    'saveOriginal': prefs.getBool(_saveOriginalKey) ?? false,
+  };
+}
 }   
