@@ -29,15 +29,15 @@ LectureVault fixes that. Every photo goes into the right subject folder automati
 
 ## How it works
 
-**1. OCR — Google ML Kit (on-device)**
+**1. OCR, Google ML Kit (on-device)**
 
 Text recognition runs entirely on your device. No internet required for this step. On top of raw OCR output, an enhancer layer corrects common recognition mistakes, strips noise words, extracts meaningful keywords, and detects academic patterns using regex , things like `derivative calculus`, `acid base chemistry`, or `supply demand economics`.
 
-**2. Classification — Gemini Flash**
+**2. Classification, Gemini Flash**
 
 All OCR results from a batch of photos are sent to Gemini in a single request. Gemini returns a subject and confidence score for each photo. The prompt is structured so Gemini reasons through the content before committing to a label, this significantly improves accuracy on ambiguous content.
 
-**3. Storage — fully local**
+**3. Storage, fully local**
 
 Photos are copied into folders named after your subjects. The folder structure lives wherever you choose during onboarding. Your subject list and storage path are saved locally using SharedPreferences. Nothing leaves your device except the OCR text sent to Gemini for classification.
 
@@ -128,9 +128,9 @@ lib/
 
 ---
 
-## Rate limits — not really a concern
+## Rate limits (not a concern)
 
-Gemini's free tier allows 500 requests per day. LectureVault batches an entire upload session into **one request** regardless of photo count — so 20 photos = 1 request. That's up to 10,000 photos classified per day on the free tier.
+Gemini's free tier allows 500 requests per day. LectureVault batches an entire upload session into **one request** regardless of photo count, so 20 photos = 1 request. That's up to 10,000 photos classified per day on the free tier.
 
 If you want your own independent quota, just clone the repo and drop your own Gemini key in `.env`.
 
