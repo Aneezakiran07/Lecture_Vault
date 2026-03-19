@@ -123,6 +123,7 @@ lib/
 This was built incrementally, with each increment pushed as a separate branch on GitHub. The order was roughly: UI screens first with mock data, then persistent storage with SharedPreferences, then real photo upload and file copying, then folder view with real photos, then settings wired up, then OCR and Gemini.
 
 ### Please read this
+
 The gemini model this project is using can send 500 requests per day. If a user send 20 or less photos per session to classify, it counts as one request only. So we can classify 20x500= 1000 photos per day(if we send 20 photos per session).
 but if anyone not want to worry abput rate limiting, then he/she can clone my repo and use his/her own gemini key in the /env
 ---
