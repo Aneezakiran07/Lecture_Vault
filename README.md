@@ -1,31 +1,51 @@
 # LectureVault
 
-A Flutter Android app that organizes your lecture photos by subject automatically. Take a photo of your lecture notes, and the app figures out which subject it belongs to and saves it to the right folder.
+A Flutter Android app that automatically organizes your lecture photos by subject. Screenshot a slide, a ChatGPT explanation, a textbook page, or a whiteboard — LectureVault reads it and files it into the right folder instantly.
 
 ---
 
-## What it does
+## The problem
 
-Students take a lot of lecture photos and they all end up in a single camera roll with no structure. LectureVault fixes that. You pick photos from your gallery or take them directly from the camera, and the app reads the text in them using OCR, sends that to Gemini AI to classify the subject, and copies the photo into the correct folder on your device.
+You screenshot lecture slides, type out notes, grab explanations from ChatGPT, photograph textbook pages and all of it ends up in one chaotic camera roll. Finding anything later is a nightmare.
 
-User can also share the photo with others and can zoom in the photo. Basically, this can be the user own notes app also. He dont need to open the gallery or folders to see those photos. He can just read it from the app
-Everything is stored locally.
+LectureVault fixes that. Every photo goes into the right subject folder automatically, without you having to think about it.
+
+---
+
+## What it works best on
+
+**Digital screenshots** are where LectureVault shines:
+- Lecture slides and presentation screenshots
+- ChatGPT / AI tool explanations
+- Textbook and PDF page photos
+- Typed notes and study guides
+- Website and article screenshots
+
+**Printed and neat handwritten notes** are also well supported - the OCR pipeline handles clean text reliably.
+
+> Heavily cursive or very messy handwriting is best effort, classification still works when enough keywords are readable, but digital content gives the most consistent results.
 
 ---
 
 ## How it works
 
-**1. OCR (Google ML Kit)**
+**1. OCR — Google ML Kit (on-device)**
 
-Text recognition runs entirely on-device using Google ML Kit. No internet required for this step. On top of raw OCR output, there is an enhancer that corrects common recognition mistakes, strips noise words, extracts meaningful keywords, and detects academic patterns using regex rules — things like "derivative calculus" or "acid base chemistry".
+Text recognition runs entirely on your device. No internet required for this step. On top of raw OCR output, an enhancer layer corrects common recognition mistakes, strips noise words, extracts meaningful keywords, and detects academic patterns using regex , things like `derivative calculus`, `acid base chemistry`, or `supply demand economics`.
 
-**2. Classification (Gemini 3.1 Flash Lite)**
+**2. Classification — Gemini Flash**
 
-All OCR results from a batch of photos are sent to Gemini in a single request. Gemini returns a JSON array with a subject and confidence score for each photo. The prompt is structured so Gemini explains its reasoning before committing to a subject label, which significantly improves accuracy.
+All OCR results from a batch of photos are sent to Gemini in a single request. Gemini returns a subject and confidence score for each photo. The prompt is structured so Gemini reasons through the content before committing to a label, this significantly improves accuracy on ambiguous content.
 
-**3. Storage**
+**3. Storage — fully local**
 
-Photos are copied into folders named after your subjects. The folder structure lives at a path you choose during onboarding. Subject list and storage path are saved locally using SharedPreferences.
+Photos are copied into folders named after your subjects. The folder structure lives wherever you choose during onboarding. Your subject list and storage path are saved locally using SharedPreferences. Nothing leaves your device except the OCR text sent to Gemini for classification.
+
+---
+
+## It's also a notes viewer
+
+You don't need to open your gallery or file manager to read your notes. LectureVault lets you browse, zoom into, and share any photo directly from inside the app. Think of it as your own organized notes app, just one that files everything for you automatically.
 
 ---
 
@@ -33,7 +53,7 @@ Photos are copied into folders named after your subjects. The folder structure l
 
 - Flutter (Android)
 - Google ML Kit Text Recognition
-- Gemini 3.1 flash lite api
+- Gemini Flash API (free tier)
 - SharedPreferences
 - image_picker
 - file_picker
@@ -48,11 +68,9 @@ Photos are copied into folders named after your subjects. The folder structure l
 
 - Flutter SDK
 - Android device or emulator (API 21+)
-- Gemini API key (free tier works)
+- Gemini API key [get one free at ai.google.dev](https://ai.google.dev), no credit card required
 
 **Setup**
-
-Clone the repo and install dependencies:
 
 ```bash
 git clone https://github.com/Aneezakiran07/LectureVault
@@ -110,22 +128,22 @@ lib/
 
 ---
 
+## Rate limits — not really a concern
+
+Gemini's free tier allows 500 requests per day. LectureVault batches an entire upload session into **one request** regardless of photo count — so 20 photos = 1 request. That's up to 10,000 photos classified per day on the free tier.
+
+If you want your own independent quota, just clone the repo and drop your own Gemini key in `.env`.
+
+---
+
 ## Limitations
 
-- The app is Android only for now.
-- Gemini free tier is limited to 10 requests per minute. The current architecture sends one request per upload session regardless of photo count, so this should not be an issue in normal use. 
-- Photos with very little or no readable text will be marked as Unclassified. But user can move them to any folder himself.
+- Android only for now.
+- Photos with very little readable text (blank pages, pure diagrams) are marked Unclassified, you can manually move them to any folder.
+- Gemini classification requires an internet connection. OCR runs offline.
 
 ---
 
 ## Development approach
 
-This was built incrementally, with each increment pushed as a separate branch on GitHub. The order was roughly: UI screens first with mock data, then persistent storage with SharedPreferences, then real photo upload and file copying, then folder view with real photos, then settings wired up, then OCR and Gemini.
-
-### Please read this
-
-The gemini model this project is using can send 500 requests per day. If a user send 20 or less photos per session to classify, it counts as one request only. So we can classify 20x500= 1000 photos per day(if we send 20 photos per session).
-but if anyone not want to worry about rate limiting, then he/she can clone my repo and use his/her own gemini key in the /env
-
----
- 
+Built incrementally with each increment pushed as a separate branch. Order was: UI screens with mock data → SharedPreferences storage → real photo upload and file copying → folder view → settings → OCR pipeline → Gemini classification.
