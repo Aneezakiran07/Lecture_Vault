@@ -10,16 +10,17 @@ class GeminiClassifier {
   static GenerativeModel? _model;
   static GenerativeModel get _gemini {
     _model ??= GenerativeModel(
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.1-flash-lite-preview',
       apiKey: _apiKey,
       generationConfig: GenerationConfig(
         temperature: 0.1,
         maxOutputTokens: 8192,
+       responseMimeType: 'application/json',
       ),
-    );
-    return _model!;
-  }
-
+    //systemInstruction: Content.system("Return only a JSON object mapping keywords to subjects."),
+  );
+  return _model!;
+}
   static Future<({String subject, double confidence, String reasoning})> classify(
     OcrResult ocrResult,
     List<String> subjects,

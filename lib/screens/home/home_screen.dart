@@ -186,6 +186,7 @@ class _HomeScreenState extends State<HomeScreen> {
   //UNIFIED DELETE DIALOG (same as settings + folder view) 
 
   void _showDeleteSubjectDialog(String name) {
+    if (name == 'Unclassified') return; 
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
@@ -588,58 +589,59 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildSubjectCard(int index) {
-    final subject = _subjects[index];
-    final count = _photoCounts[subject] ?? 0;
-    final bgColor = _cardColors[index % _cardColors.length];
-    final iconColor = _iconColors[index % _iconColors.length];
-    final icon = _subjectIcons[index % _subjectIcons.length];
+  final subject = _subjects[index];
+  final count = _photoCounts[subject] ?? 0;
+  final bgColor = _cardColors[index % _cardColors.length];
+  final iconColor = _iconColors[index % _iconColors.length];
+  final icon = _subjectIcons[index % _subjectIcons.length];
 
-    return InkWell(
-      onTap: () => Navigator.pushNamed(
-        context,
-        '/folder',
-        arguments: {
-          'folderName': subject,
-          'icon': icon,
-          'basePath': _basePath,
-        },
-      ).then((_) => _loadData()),
-      onLongPress: () => _showDeleteSubjectDialog(subject),
-      borderRadius: BorderRadius.circular(18),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: const Color(0xFFEEEEEE)),
-          boxShadow: const [
-            BoxShadow(
-                color: Color(0x0A000000),
-                blurRadius: 10,
-                offset: Offset(0, 3)),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: bgColor,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(icon, color: iconColor, size: 22),
+  return InkWell(
+    onTap: () => Navigator.pushNamed(
+      context,
+      '/folder',
+      arguments: {
+        'folderName': subject,
+        'icon': icon,
+        'basePath': _basePath,
+      },
+    ).then((_) => _loadData()),
+    onLongPress: () => _showDeleteSubjectDialog(subject),
+    borderRadius: BorderRadius.circular(18),
+    child: Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFEEEEEE)),
+        boxShadow: const [
+          BoxShadow(
+              color: Color(0x0A000000),
+              blurRadius: 10,
+              offset: Offset(0, 3)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  borderRadius: BorderRadius.circular(12),
                 ),
+                child: Icon(icon, color: iconColor, size: 22),
+              ),
+              // Delete button — hidden for Unclassified
+              if (subject != 'Unclassified')
                 GestureDetector(
                   onTap: () => _showDeleteSubjectDialog(subject),
                   child: Container(
                     padding: const EdgeInsets.all(5),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFE07A5F)
-                          .withOpacity(0.08),
+                      color: const Color(0xFFE07A5F).withOpacity(0.08),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: const Icon(
@@ -648,37 +650,37 @@ class _HomeScreenState extends State<HomeScreen> {
                         size: 14),
                   ),
                 ),
-              ],
+            ],
+          ),
+          const Spacer(),
+          Text(
+            subject,
+            style: const TextStyle(
+              color: AppColors.bodyText,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
             ),
-            const Spacer(),
-            Text(
-              subject,
-              style: const TextStyle(
-                color: AppColors.bodyText,
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Icon(Icons.photo_outlined,
+                  size: 12, color: Colors.grey.shade400),
+              const SizedBox(width: 4),
+              Text(
+                '$count photo${count != 1 ? 's' : ''}',
+                style: TextStyle(
+                    color: Colors.grey.shade500, fontSize: 11),
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                Icon(Icons.photo_outlined,
-                    size: 12, color: Colors.grey.shade400),
-                const SizedBox(width: 4),
-                Text(
-                  '$count photo${count != 1 ? 's' : ''}',
-                  style: TextStyle(
-                      color: Colors.grey.shade500, fontSize: 11),
-                ),
-              ],
-            ),
-          ],
-        ),
+            ],
+          ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildEmptyState() {
     return Center(

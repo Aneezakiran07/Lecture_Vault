@@ -97,8 +97,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     _newSubjectController.dispose();
     super.dispose();
   }
-
-  // ── STORAGE PATH CHANGE ──────────────────────────────────────────
+// storage path change
 
   Future<void> _changeStoragePath() async {
     final hasPermission =
@@ -121,8 +120,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     }
   }
 
-  // ── SUBJECT MANAGEMENT ───────────────────────────────────────────
-
+  // subject management
   Future<void> _addSubject(String name) async {
     if (name.isEmpty || _subjects.contains(name)) return;
     final newSubjects = [..._subjects, name];
@@ -182,8 +180,6 @@ class _SettingsScreenState extends State<SettingsScreen>
           context, '/onboarding', (route) => false);
     }
   }
-
-  // ── DIALOGS ──────────────────────────────────────────────────────
 
   void _showAddSubjectDialog() {
     _newSubjectController.clear();
@@ -290,6 +286,7 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   void _showDeleteSubjectDialog(int index) {
     final name = _subjects[index];
+    if (name == 'Unclassified') return;
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
@@ -408,8 +405,6 @@ class _SettingsScreenState extends State<SettingsScreen>
     ));
   }
 
-  // ── BUILD ────────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -456,8 +451,6 @@ class _SettingsScreenState extends State<SettingsScreen>
       ),
     );
   }
-
-  // ── HEADER ───────────────────────────────────────────────────────
 
   Widget _buildHeader() {
     return Container(
@@ -564,7 +557,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-  // ── PROFILE CARD ─────────────────────────────────────────────────
+  // PROFILE CARD
 
   Widget _buildProfileCard() {
     return Padding(
@@ -638,7 +631,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-  // ── DATA SAFETY CARD ─────────────────────────────────────────────
+  // DATA SAFETY CARD
 
   Widget _buildDataSafetyCard() {
     return Padding(
@@ -698,7 +691,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-  // ── SECTION HEADER ───────────────────────────────────────────────
+  //  SECTION HEADER  
 
   Widget _buildSectionHeader(String title, IconData icon) {
     return Padding(
@@ -750,7 +743,6 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-  // ── STORAGE ──────────────────────────────────────────────────────
 
   Widget _buildStorageSection() {
     return _buildCard(
@@ -805,69 +797,69 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-  // ── SUBJECTS ─────────────────────────────────────────────────────
 
-  Widget _buildSubjectsSection() {
-    return _buildCard(
-      Column(
-        children: [
-          if (_subjects.isEmpty)
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Text('No subjects yet. Add one below!',
-                  style: TextStyle(
-                      color: Colors.grey.shade500, fontSize: 13)),
-            ),
-          ..._subjects.asMap().entries.map((entry) {
-            final index = entry.key;
-            final subject = entry.value;
-            final isLast = index == _subjects.length - 1;
-            final iconColor = _iconColors[index % _iconColors.length];
-            final icon = _subjectIcons[index % _subjectIcons.length];
-            return Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 12),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
+Widget _buildSubjectsSection() {
+  return _buildCard(
+    Column(
+      children: [
+        if (_subjects.isEmpty)
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Text('No subjects yet. Add one below!',
+                style: TextStyle(
+                    color: Colors.grey.shade500, fontSize: 13)),
+          ),
+        ..._subjects.asMap().entries.map((entry) {
+          final index = entry.key;
+          final subject = entry.value;
+          final isLast = index == _subjects.length - 1;
+          final iconColor = _iconColors[index % _iconColors.length];
+          final icon = _subjectIcons[index % _subjectIcons.length];
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: iconColor.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(icon, color: iconColor, size: 18),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(subject,
+                          style: const TextStyle(
+                              color: AppColors.bodyText,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 14)),
+                    ),
+                    // Edit button — always shown
+                    GestureDetector(
+                      onTap: () => _showRenameDialog(index),
+                      child: Container(
+                        padding: const EdgeInsets.all(7),
                         decoration: BoxDecoration(
-                          color: iconColor.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(10),
+                          color: const Color(0xFF035955).withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Icon(icon, color: iconColor, size: 18),
+                        child: const Icon(Icons.edit_rounded,
+                            color: Color(0xFF035955), size: 15),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(subject,
-                            style: const TextStyle(
-                                color: AppColors.bodyText,
-                                fontWeight: FontWeight.w500,
-                                fontSize: 14)),
-                      ),
-                      GestureDetector(
-                        onTap: () => _showRenameDialog(index),
-                        child: Container(
-                          padding: const EdgeInsets.all(7),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF035955)
-                                .withOpacity(0.08),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Icon(Icons.edit_rounded,
-                              color: Color(0xFF035955), size: 15),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
+                    ),
+                    const SizedBox(width: 8),
+                    // Delete button — hidden for Unclassified
+                    if (subject != 'Unclassified')
                       GestureDetector(
                         onTap: () => _showDeleteSubjectDialog(index),
                         child: Container(
                           padding: const EdgeInsets.all(7),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFE07A5F)
-                                .withOpacity(0.08),
+                            color: const Color(0xFFE07A5F).withOpacity(0.08),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: const Icon(
@@ -876,52 +868,51 @@ class _SettingsScreenState extends State<SettingsScreen>
                               size: 15),
                         ),
                       ),
-                    ],
-                  ),
+                  ],
                 ),
-                if (!isLast)
-                  const Divider(
-                      height: 1,
-                      color: Color(0xFFF0F0F0),
-                      indent: 16,
-                      endIndent: 16),
-              ],
-            );
-          }),
-          const Divider(height: 1, color: Color(0xFFF0F0F0)),
-          GestureDetector(
-            onTap: _showAddSubjectDialog,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 16, vertical: 14),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color:
-                          const Color(0xFF89B0AE).withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.add_rounded,
-                        color: Color(0xFF89B0AE), size: 18),
-                  ),
-                  const SizedBox(width: 12),
-                  const Text('Add Subject',
-                      style: TextStyle(
-                          color: Color(0xFF89B0AE),
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14)),
-                ],
               ),
+              if (!isLast)
+                const Divider(
+                    height: 1,
+                    color: Color(0xFFF0F0F0),
+                    indent: 16,
+                    endIndent: 16),
+            ],
+          );
+        }),
+        const Divider(height: 1, color: Color(0xFFF0F0F0)),
+        GestureDetector(
+          onTap: _showAddSubjectDialog,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+                horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF89B0AE).withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.add_rounded,
+                      color: Color(0xFF89B0AE), size: 18),
+                ),
+                const SizedBox(width: 12),
+                const Text('Add Subject',
+                    style: TextStyle(
+                        color: Color(0xFF89B0AE),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14)),
+              ],
             ),
           ),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
+}
 
-  // ── CLASSIFICATION ───────────────────────────────────────────────
+  // CLASSIFICATION 
 
   Widget _buildClassificationSection() {
     return _buildCard(
@@ -1027,7 +1018,6 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-  // ── DANGER ZONE ──────────────────────────────────────────────────
 
   Widget _buildDangerZone() {
     return Padding(
@@ -1108,3 +1098,4 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 }
+

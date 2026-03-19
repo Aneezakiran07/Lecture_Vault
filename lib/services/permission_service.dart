@@ -6,7 +6,7 @@ class PermissionService {
   static bool _isRequestingStorage = false;
   static bool _isRequestingCamera = false;
 
-  // Correct way to get SDK version on Android
+  // Uses device_info_plus — the only correct way to get SDK on Android
   static Future<int> _getAndroidSdkInt() async {
     try {
       final info = await DeviceInfoPlugin().androidInfo;
@@ -29,15 +29,23 @@ class PermissionService {
 
         if (sdkInt >= 33) {
           final photos = await Permission.photos.request();
-          return photos.isGranted;
+          if (photos.isGranted) return true;
+          // Small delay — Android sometimes hasn't propagated the grant yet
+          await Future.delayed(const Duration(milliseconds: 300));
+          return await Permission.photos.isGranted;
         } else if (sdkInt >= 30) {
           final manage = await Permission.manageExternalStorage.request();
           if (manage.isGranted) return true;
           final storage = await Permission.storage.request();
-          return storage.isGranted;
+          if (storage.isGranted) return true;
+          await Future.delayed(const Duration(milliseconds: 300));
+          return await Permission.storage.isGranted ||
+              await Permission.manageExternalStorage.isGranted;
         } else {
           final storage = await Permission.storage.request();
-          return storage.isGranted;
+          if (storage.isGranted) return true;
+          await Future.delayed(const Duration(milliseconds: 300));
+          return await Permission.storage.isGranted;
         }
       }
       return true;
@@ -74,7 +82,9 @@ class PermissionService {
     _isRequestingCamera = true;
     try {
       final camera = await Permission.camera.request();
-      return camera.isGranted;
+      if (camera.isGranted) return true;
+      await Future.delayed(const Duration(milliseconds: 300));
+      return await Permission.camera.isGranted;
     } catch (e) {
       return Permission.camera.isGranted;
     } finally {
