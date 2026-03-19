@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -46,7 +47,7 @@ class _UploadScreenState extends State<UploadScreen>
   late AnimationController _headerAnimController;
   late Animation<double> _headerFadeAnim;
 
-  final ImagePicker _picker = ImagePicker();
+  // NOTE: _picker field removed — fresh instance created per pick call
   final List<Map<String, dynamic>> _selectedPhotos = [];
 
   List<String> _allSubjects = [];
@@ -90,7 +91,7 @@ class _UploadScreenState extends State<UploadScreen>
     final basePath = await StorageService.getBasePath();
     final classSettings = await StorageService.getClassificationSettings();
     setState(() {
-      _allSubjects = subjects; // no hardcoded 'Unclassified'
+      _allSubjects = subjects;
       _basePath = basePath;
       _autoClassify = classSettings['autoClassify']!;
       _showConfidence = classSettings['showConfidence']!;
@@ -103,6 +104,63 @@ class _UploadScreenState extends State<UploadScreen>
     _headerAnimController.dispose();
     super.dispose();
   }
+
+  // image helpers
+
+  /// Renders a photo safely regardless of whether the path is a
+  /// content:// URI or a regular file path.
+  Widget _buildPhotoImage(String path,
+      {Uint8List? cachedBytes, BoxFit fit = BoxFit.cover}) {
+    if (cachedBytes != null) {
+      return Image.memory(cachedBytes, fit: fit);
+    }
+    if (path.startsWith('content://')) {
+      return FutureBuilder<Uint8List?>(
+        future: XFile(path).readAsBytes(),
+        builder: (context, snap) {
+          if (snap.hasData && snap.data != null) {
+            return Image.memory(snap.data!, fit: fit);
+          }
+          return Container(
+            color: Colors.grey.shade200,
+            child: const Center(
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Color(0xFF89B0AE),
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    }
+    // Regular file path — safe to use File()
+    return Image.file(File(path), fit: fit);
+  }
+
+  /// Pre-reads bytes for content:// URIs while the URI permission is still
+  /// live (right after the picker returns). Stores them in the photo map so
+  /// every subsequent rebuild is instant.
+  Future<void> _cachePhotoBytes(int startIdx) async {
+    for (int i = startIdx; i < _selectedPhotos.length; i++) {
+      final path = _selectedPhotos[i]['path'] as String;
+      if (path.startsWith('content://')) {
+        try {
+          final bytes = await XFile(path).readAsBytes();
+          if (mounted) {
+            setState(() => _selectedPhotos[i]['bytes'] = bytes);
+          }
+        } catch (_) {
+          // FutureBuilder fallback inside _buildPhotoImage handles this
+        }
+      }
+    }
+  }
+
+  // classification
 
   Future<void> _runBatchClassification(List<OcrResult> batchOcrResults) async {
     _log('Starting batch classification for ${batchOcrResults.length} photos...');
@@ -157,191 +215,200 @@ class _UploadScreenState extends State<UploadScreen>
       ),
     );
   }
+
+
   Future<void> _pickFromGallery() async {
-  _log('Gallery picker started');
-  final hasPermission = await PermissionService.requestStoragePermission();
-  if (!hasPermission) {
-    _showSnack('Storage permission required', isError: true);
-    return;
-  }
-
-  final remaining = _maxPhotos - _selectedPhotos.length;
-  if (remaining <= 0) {
-    _showSnack('Max $_maxPhotos photos per session reached', isError: true);
-    return;
-  }
-
-  await Future.delayed(const Duration(milliseconds: 300));
-
-  var picked = await _picker.pickMultiImage(imageQuality: 90);
-  _log('pickMultiImage returned ${picked.length} photo(s)');
-
-  // Fallback: pickMultiImage returns empty on second call on some Android devices
-  if (picked.isEmpty) {
-    _log('pickMultiImage empty — trying pickImage fallback');
-    final single = await _picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 90,
-    );
-    if (single != null) {
-      picked = [single];
-      _log('pickImage fallback succeeded');
+    _log('Gallery picker started');
+    final hasPermission = await PermissionService.requestStoragePermission();
+    if (!hasPermission) {
+      _showSnack('Storage permission required', isError: true);
+      return;
     }
-  }
 
-  if (picked.isEmpty) return;
+    final remaining = _maxPhotos - _selectedPhotos.length;
+    if (remaining <= 0) {
+      _showSnack('Max $_maxPhotos photos per session reached', isError: true);
+      return;
+    }
 
-  if (picked.length > remaining) {
-    final removed = picked.length - remaining;
-    picked = picked.take(remaining).toList();
-    _showSnack(
-      'Only $remaining slot${remaining == 1 ? '' : 's'} left — '
-      '$removed photo${removed == 1 ? '' : 's'} above the $_maxPhotos limit removed',
-      isError: true,
-    );
-  }
+    await Future.delayed(const Duration(milliseconds: 300));
 
-  final paths = picked.map((x) => x.path).toList();
-  final subjects = _allSubjects.where((s) => s != 'Unclassified').toList();
-  final startIdx = _selectedPhotos.length;
+    // Fresh picker instance each time — avoids stale state on some Android devices
+    final picker = ImagePicker();
+    var picked = await picker.pickMultiImage(imageQuality: 90);
+    _log('pickMultiImage returned ${picked.length} photo(s)');
 
-  setState(() {
-    _currentStep = 1;
-    for (final path in paths) {
-      _selectedPhotos.add({
-        'path': path,
-        'ocrText': '',
-        'subject': '',
-        'confidence': 0.0,
-        'override': null,
-        'isProcessing': true,
+    // Fallback: pickMultiImage returns empty on second call on some Android devices
+    if (picked.isEmpty) {
+      _log('pickMultiImage empty — trying pickImage fallback');
+      final single = await picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 90,
+      );
+      if (single != null) {
+        picked = [single];
+        _log('pickImage fallback succeeded');
+      }
+    }
+
+    if (picked.isEmpty) return;
+
+    if (picked.length > remaining) {
+      final removed = picked.length - remaining;
+      picked = picked.take(remaining).toList();
+      _showSnack(
+        'Only $remaining slot${remaining == 1 ? '' : 's'} left — '
+        '$removed photo${removed == 1 ? '' : 's'} above the $_maxPhotos limit removed',
+        isError: true,
+      );
+    }
+
+    final paths = picked.map((x) => x.path).toList();
+    final subjects = _allSubjects.where((s) => s != 'Unclassified').toList();
+    final startIdx = _selectedPhotos.length;
+
+    // Single atomic setState — adds all photos + sets step in one rebuild
+    setState(() {
+      _currentStep = 1;
+      for (final path in paths) {
+        _selectedPhotos.add({
+          'path': path,
+          'bytes': null, // filled by _cachePhotoBytes below
+          'ocrText': '',
+          'subject': '',
+          'confidence': 0.0,
+          'override': null,
+          'isProcessing': true,
+        });
+      }
+    });
+
+    // Cache bytes immediately while content:// URI permission is still live
+    _cachePhotoBytes(startIdx);
+
+    if (!_autoClassify) {
+      setState(() {
+        for (int i = startIdx; i < _selectedPhotos.length; i++) {
+          _selectedPhotos[i]['subject'] = 'Unclassified';
+          _selectedPhotos[i]['confidence'] = 0.0;
+          _selectedPhotos[i]['ocrText'] = 'Auto-classify disabled';
+          _selectedPhotos[i]['isProcessing'] = false;
+        }
+        _currentStep = 2;
       });
+      _setStatus('Auto-classify is off — set subjects manually',
+          icon: Icons.info_outline_rounded);
+      return;
     }
-  });
 
-  if (!_autoClassify) {
-    setState(() {
-      for (int i = startIdx; i < _selectedPhotos.length; i++) {
-        _selectedPhotos[i]['subject'] = 'Unclassified';
-        _selectedPhotos[i]['confidence'] = 0.0;
-        _selectedPhotos[i]['ocrText'] = 'Auto-classify disabled';
-        _selectedPhotos[i]['isProcessing'] = false;
-      }
-      _currentStep = 2;
-    });
-    _setStatus('Auto-classify is off — set subjects manually',
-        icon: Icons.info_outline_rounded);
-    return;
-  }
-
-  _setStatus(
-    'Step 1 of 2 — scanning ${paths.length} photo${paths.length > 1 ? 's' : ''} for text...',
-    icon: Icons.document_scanner_rounded,
-  );
-
-  List<OcrResult> ocrResults;
-  try {
-    ocrResults = await Future.wait(
-      paths.map((p) => OcrService.extractRich(p)),
-      eagerError: false,
-    );
-    _log('OCR complete for ${ocrResults.length} images');
-  } catch (e) {
-    _log('OCR failed: $e');
-    _setStatus('Scanning failed — please try again',
-        icon: Icons.error_outline_rounded, isError: true);
-    setState(() {
-      for (int i = startIdx; i < _selectedPhotos.length; i++) {
-        _selectedPhotos[i]['subject'] = 'Unclassified';
-        _selectedPhotos[i]['confidence'] = 0.0;
-        _selectedPhotos[i]['ocrText'] = 'Scan failed';
-        _selectedPhotos[i]['isProcessing'] = false;
-      }
-    });
-    return;
-  }
-
-  setState(() => _currentStep = 2);
-
-  _setStatus(
-    'Step 2 of 2 — classifying ${ocrResults.length} photo${ocrResults.length > 1 ? 's' : ''} with AI...',
-    icon: Icons.auto_awesome_rounded,
-  );
-
-  List<({String subject, double confidence})> results;
-  try {
-    results = await ClassifierService.classifyAllFromOcr(
-      ocrResults,
-      subjects,
-      onLog: _log,
-      onProgress: (completed, total) {
-        _setStatus(
-          'Step 2 of 2 — AI classified $completed of $total photos...',
-          icon: Icons.auto_awesome_rounded,
-        );
-      },
-    );
-  } catch (e) {
-    _log('Classification failed: $e');
     _setStatus(
-      'Classification failed — set subjects manually using ↓',
-      icon: Icons.warning_amber_rounded,
-      isError: true,
+      'Step 1 of 2 — scanning ${paths.length} photo${paths.length > 1 ? 's' : ''} for text...',
+      icon: Icons.document_scanner_rounded,
     );
-    setState(() {
-      for (int i = startIdx; i < _selectedPhotos.length; i++) {
-        _selectedPhotos[i]['subject'] = 'Unclassified';
-        _selectedPhotos[i]['confidence'] = 0.0;
-        _selectedPhotos[i]['isProcessing'] = false;
-      }
-    });
-    return;
-  }
 
-  setState(() {
-    for (int i = 0; i < paths.length; i++) {
-      final idx = startIdx + i;
-      if (idx >= _selectedPhotos.length) continue;
-      final ocr = ocrResults[i];
-      final result = i < results.length
-          ? results[i]
-          : (subject: 'Unclassified', confidence: 0.0);
-      if (result.subject == 'No Internet') {
-        _selectedPhotos[idx]['ocrText'] = 'Connect to internet to classify';
-        _selectedPhotos[idx]['subject'] = 'Unclassified';
-        _selectedPhotos[idx]['confidence'] = 0.0;
-      } else {
-        _selectedPhotos[idx]['ocrText'] = ocr.keywords.isNotEmpty
-            ? ocr.keywords.take(8).join(', ')
-            : 'No text detected';
-        _selectedPhotos[idx]['subject'] = result.subject;
-        _selectedPhotos[idx]['confidence'] = result.confidence;
-      }
-      _selectedPhotos[idx]['isProcessing'] = false;
+    List<OcrResult> ocrResults;
+    try {
+      ocrResults = await Future.wait(
+        paths.map((p) => OcrService.extractRich(p)),
+        eagerError: false,
+      );
+      _log('OCR complete for ${ocrResults.length} images');
+    } catch (e) {
+      _log('OCR failed: $e');
+      _setStatus('Scanning failed — please try again',
+          icon: Icons.error_outline_rounded, isError: true);
+      setState(() {
+        for (int i = startIdx; i < _selectedPhotos.length; i++) {
+          _selectedPhotos[i]['subject'] = 'Unclassified';
+          _selectedPhotos[i]['confidence'] = 0.0;
+          _selectedPhotos[i]['ocrText'] = 'Scan failed';
+          _selectedPhotos[i]['isProcessing'] = false;
+        }
+      });
+      return;
     }
-    _currentStep = 3;
-  });
 
-  final unclassified =
-      results.where((r) => r.subject == 'Unclassified').length;
-  final noInternet = results.any((r) => r.subject == 'No Internet');
+    setState(() => _currentStep = 2);
 
-  if (noInternet) {
-    _setStatus('No internet — connect and re-upload to classify',
-        icon: Icons.wifi_off_rounded, isError: true);
-  } else if (unclassified > 0) {
     _setStatus(
-      '${results.length - unclassified} classified ✓, $unclassified need manual review',
-      icon: Icons.warning_amber_rounded,
-      isError: true,
+      'Step 2 of 2 — classifying ${ocrResults.length} photo${ocrResults.length > 1 ? 's' : ''} with AI...',
+      icon: Icons.auto_awesome_rounded,
     );
-  } else {
-    _setStatus(
-      'All ${results.length} photo${results.length > 1 ? 's' : ''} classified — tap Confirm & Save!',
-      icon: Icons.check_circle_rounded,
-    );
+
+    List<({String subject, double confidence})> results;
+    try {
+      results = await ClassifierService.classifyAllFromOcr(
+        ocrResults,
+        subjects,
+        onLog: _log,
+        onProgress: (completed, total) {
+          _setStatus(
+            'Step 2 of 2 — AI classified $completed of $total photos...',
+            icon: Icons.auto_awesome_rounded,
+          );
+        },
+      );
+    } catch (e) {
+      _log('Classification failed: $e');
+      _setStatus(
+        'Classification failed — set subjects manually using ↓',
+        icon: Icons.warning_amber_rounded,
+        isError: true,
+      );
+      setState(() {
+        for (int i = startIdx; i < _selectedPhotos.length; i++) {
+          _selectedPhotos[i]['subject'] = 'Unclassified';
+          _selectedPhotos[i]['confidence'] = 0.0;
+          _selectedPhotos[i]['isProcessing'] = false;
+        }
+      });
+      return;
+    }
+
+    setState(() {
+      for (int i = 0; i < paths.length; i++) {
+        final idx = startIdx + i;
+        if (idx >= _selectedPhotos.length) continue;
+        final ocr = ocrResults[i];
+        final result = i < results.length
+            ? results[i]
+            : (subject: 'Unclassified', confidence: 0.0);
+        if (result.subject == 'No Internet') {
+          _selectedPhotos[idx]['ocrText'] = 'Connect to internet to classify';
+          _selectedPhotos[idx]['subject'] = 'Unclassified';
+          _selectedPhotos[idx]['confidence'] = 0.0;
+        } else {
+          _selectedPhotos[idx]['ocrText'] = ocr.keywords.isNotEmpty
+              ? ocr.keywords.take(8).join(', ')
+              : 'No text detected';
+          _selectedPhotos[idx]['subject'] = result.subject;
+          _selectedPhotos[idx]['confidence'] = result.confidence;
+        }
+        _selectedPhotos[idx]['isProcessing'] = false;
+      }
+      _currentStep = 3;
+    });
+
+    final unclassified =
+        results.where((r) => r.subject == 'Unclassified').length;
+    final noInternet = results.any((r) => r.subject == 'No Internet');
+
+    if (noInternet) {
+      _setStatus('No internet — connect and re-upload to classify',
+          icon: Icons.wifi_off_rounded, isError: true);
+    } else if (unclassified > 0) {
+      _setStatus(
+        '${results.length - unclassified} classified ✓, $unclassified need manual review',
+        icon: Icons.warning_amber_rounded,
+        isError: true,
+      );
+    } else {
+      _setStatus(
+        'All ${results.length} photo${results.length > 1 ? 's' : ''} classified — tap Confirm & Save!',
+        icon: Icons.check_circle_rounded,
+      );
+    }
   }
-}
 
   Future<void> _pickFromCamera() async {
     if (_selectedPhotos.length >= _maxPhotos) {
@@ -353,21 +420,30 @@ class _UploadScreenState extends State<UploadScreen>
       _showSnack('Camera permission required', isError: true);
       return;
     }
-    final xFile = await _picker.pickImage(
+
+    // Fresh picker instance
+    final picker = ImagePicker();
+    final xFile = await picker.pickImage(
         source: ImageSource.camera, imageQuality: 90);
     if (xFile == null) return;
 
-    setState(() => _currentStep = 1);
-
     final entry = {
       'path': xFile.path,
+      'bytes': null,
       'ocrText': '',
       'subject': '',
       'confidence': 0.0,
       'override': null,
       'isProcessing': true,
     };
-    setState(() => _selectedPhotos.add(entry));
+
+    setState(() {
+      _currentStep = 1;
+      _selectedPhotos.add(entry);
+    });
+
+    // Cache bytes for this single camera photo too
+    _cachePhotoBytes(_selectedPhotos.length - 1);
 
     if (!_autoClassify) {
       setState(() {
@@ -429,6 +505,7 @@ class _UploadScreenState extends State<UploadScreen>
     }
   }
 
+  // Bottom sheet
   void _showPickOptions() {
     if (_selectedPhotos.length >= _maxPhotos) {
       _showSnack('Max $_maxPhotos photos per session reached', isError: true);
@@ -504,6 +581,8 @@ class _UploadScreenState extends State<UploadScreen>
     );
   }
 
+  // SAVE
+
   Future<void> _confirmAndSave() async {
     if (_basePath == null) {
       _showSnack('No storage path set.', isError: true);
@@ -557,6 +636,8 @@ class _UploadScreenState extends State<UploadScreen>
     }
   }
 
+  //  Remove / Undo
+
   void _removePhoto(int index) {
     HapticFeedback.lightImpact();
     final removed = Map<String, dynamic>.from(_selectedPhotos[index]);
@@ -567,7 +648,6 @@ class _UploadScreenState extends State<UploadScreen>
       if (_selectedPhotos.isEmpty) _currentStep = 0;
     });
 
-    // Uses your new _messengerKey to prevent leaks to other screens
     _messengerKey.currentState?.clearSnackBars();
     _messengerKey.currentState?.showSnackBar(
       SnackBar(
@@ -576,15 +656,14 @@ class _UploadScreenState extends State<UploadScreen>
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         duration: const Duration(seconds: 4),
-        showCloseIcon: true,          // Adds the cross button to close manually
-        closeIconColor: Colors.white, // Makes the cross button visible
+        showCloseIcon: true,
+        closeIconColor: Colors.white,
         action: SnackBarAction(
           label: 'Undo',
           textColor: Colors.white,
           onPressed: () {
             HapticFeedback.selectionClick();
             setState(() {
-              // reinsert at original position (clamped in case list shrank)
               final insertAt = removedIndex.clamp(0, _selectedPhotos.length);
               _selectedPhotos.insert(insertAt, removed);
               if (_selectedPhotos.isNotEmpty) _currentStep = 2;
@@ -594,23 +673,25 @@ class _UploadScreenState extends State<UploadScreen>
       ),
     );
   }
- void _showSnack(String msg, {bool isError = false}) { 
-    _messengerKey.currentState?.clearSnackBars(); 
-    _messengerKey.currentState?.showSnackBar(SnackBar( 
-      content: Text(msg), 
-      backgroundColor: isError ? const Color(0xFFE07A5F) : const Color(0xFF035955), 
-      behavior: SnackBarBehavior.floating, 
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), 
-      duration: const Duration(seconds: 4), 
-      showCloseIcon: true,         
-      closeIconColor: Colors.white, 
-    )); 
+
+  void _showSnack(String msg, {bool isError = false}) {
+    _messengerKey.currentState?.clearSnackBars();
+    _messengerKey.currentState?.showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor:
+          isError ? const Color(0xFFE07A5F) : const Color(0xFF035955),
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      duration: const Duration(seconds: 4),
+      showCloseIcon: true,
+      closeIconColor: Colors.white,
+    ));
   }
+
+  // Build 
 
   @override
   Widget build(BuildContext context) {
-    // Wrap Scaffold in its own ScaffoldMessenger , toasts are scoped to this
-    // screen only and automatically die when the screen is popped
     return ScaffoldMessenger(
       key: _messengerKey,
       child: Scaffold(
@@ -1100,8 +1181,11 @@ class _UploadScreenState extends State<UploadScreen>
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        Image.file(File(photo['path'] as String),
-                            fit: BoxFit.cover),
+                        // ✅ FIXED: uses _buildPhotoImage instead of Image.file
+                        _buildPhotoImage(
+                          photo['path'] as String,
+                          cachedBytes: photo['bytes'] as Uint8List?,
+                        ),
                         if (isProcessing)
                           Container(
                             color: Colors.black45,
@@ -1287,9 +1371,12 @@ class _UploadScreenState extends State<UploadScreen>
                                 : Stack(
                                     fit: StackFit.expand,
                                     children: [
-                                      Image.file(
-                                          File(photo['path'] as String),
-                                          fit: BoxFit.cover),
+                                      // ✅ FIXED: uses _buildPhotoImage instead of Image.file
+                                      _buildPhotoImage(
+                                        photo['path'] as String,
+                                        cachedBytes:
+                                            photo['bytes'] as Uint8List?,
+                                      ),
                                       Positioned(
                                         bottom: 2,
                                         right: 2,
@@ -1620,4 +1707,3 @@ class _UploadScreenState extends State<UploadScreen>
     );
   }
 }
-
