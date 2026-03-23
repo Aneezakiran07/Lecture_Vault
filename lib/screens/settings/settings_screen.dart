@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../core/constants/colors.dart';
 import '../../services/storage_service.dart';
@@ -14,6 +15,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen>
     with TickerProviderStateMixin {
+
   late AnimationController _headerAnimController;
   late Animation<double> _headerFadeAnim;
 
@@ -25,7 +27,8 @@ class _SettingsScreenState extends State<SettingsScreen>
   bool _showConfidence = true;
   bool _isLoading = true;
 
-  final TextEditingController _newSubjectController = TextEditingController();
+  final TextEditingController _newSubjectController =
+      TextEditingController();
 
   final List<IconData> _subjectIcons = [
     Icons.calculate_rounded,
@@ -97,7 +100,6 @@ class _SettingsScreenState extends State<SettingsScreen>
     _newSubjectController.dispose();
     super.dispose();
   }
-// storage path change
 
   Future<void> _changeStoragePath() async {
     final hasPermission =
@@ -116,11 +118,10 @@ class _SettingsScreenState extends State<SettingsScreen>
       await StorageService.createAllSubjectFolders(newPath, _subjects);
       await StorageService.saveBasePath(newPath);
       setState(() => _storagePath = newPath);
-      _showSnack('✓ Storage location updated');
+      _showSnack('Storage location updated');
     }
   }
 
-  // subject management
   Future<void> _addSubject(String name) async {
     if (name.isEmpty || _subjects.contains(name)) return;
     final newSubjects = [..._subjects, name];
@@ -129,7 +130,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       await StorageService.createSubjectFolder(_storagePath, name);
     }
     setState(() => _subjects = newSubjects);
-    _showSnack('✓ Subject "$name" added');
+    _showSnack('Subject "$name" added');
   }
 
   Future<void> _renameSubject(int index, String newName) async {
@@ -141,7 +142,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       await StorageService.createSubjectFolder(_storagePath, newName);
     }
     setState(() => _subjects = newSubjects);
-    _showSnack('✓ Renamed to "$newName"');
+    _showSnack('Renamed to "$newName"');
   }
 
   Future<void> _deleteSubjectFromListOnly(int index) async {
@@ -165,7 +166,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     final newSubjects = [..._subjects]..removeAt(index);
     await StorageService.saveSubjects(newSubjects);
     setState(() => _subjects = newSubjects);
-    _showSnack('✓ Subject "$name" and its photos deleted');
+    _showSnack('Subject "$name" and its photos deleted');
   }
 
   Future<void> _clearAllData() async {
@@ -174,7 +175,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       _subjects = [];
       _storagePath = 'Not set';
     });
-    _showSnack('✓ All data cleared');
+    _showSnack('All data cleared');
     if (mounted) {
       Navigator.pushNamedAndRemoveUntil(
           context, '/onboarding', (route) => false);
@@ -203,8 +204,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                 borderRadius: BorderRadius.circular(12)),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide:
-                  const BorderSide(color: Color(0xFF89B0AE), width: 2),
+              borderSide: const BorderSide(
+                  color: Color(0xFF89B0AE), width: 2),
             ),
           ),
         ),
@@ -221,12 +222,14 @@ class _SettingsScreenState extends State<SettingsScreen>
               _addSubject(name);
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF89B0AE),
+              backgroundColor: const Color(0xFF035955),
               foregroundColor: Colors.white,
+              elevation: 0,
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10)),
             ),
-            child: const Text('Add'),
+            child: const Text('Add',
+                style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -254,8 +257,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                 borderRadius: BorderRadius.circular(12)),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide:
-                  const BorderSide(color: Color(0xFF89B0AE), width: 2),
+              borderSide: const BorderSide(
+                  color: Color(0xFF89B0AE), width: 2),
             ),
           ),
         ),
@@ -272,12 +275,14 @@ class _SettingsScreenState extends State<SettingsScreen>
               _renameSubject(index, name);
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.headerCard,
+              backgroundColor: const Color(0xFF035955),
               foregroundColor: Colors.white,
+              elevation: 0,
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10)),
             ),
-            child: const Text('Save'),
+            child: const Text('Save',
+                style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -331,13 +336,20 @@ class _SettingsScreenState extends State<SettingsScreen>
             child: Text('Cancel',
                 style: TextStyle(color: Colors.grey.shade600)),
           ),
-          TextButton(
+          ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
               _deleteSubjectFromListOnly(index);
             },
-            child: const Text('Remove from app only',
-                style: TextStyle(color: Color(0xFF4A90D9))),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4A90D9),
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('App only',
+                style: TextStyle(fontWeight: FontWeight.bold)),
           ),
           ElevatedButton(
             onPressed: () {
@@ -347,10 +359,12 @@ class _SettingsScreenState extends State<SettingsScreen>
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFE07A5F),
               foregroundColor: Colors.white,
+              elevation: 0,
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10)),
             ),
-            child: const Text('Delete everything'),
+            child: const Text('Delete all',
+                style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -384,10 +398,12 @@ class _SettingsScreenState extends State<SettingsScreen>
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFE07A5F),
               foregroundColor: Colors.white,
+              elevation: 0,
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10)),
             ),
-            child: const Text('Reset App'),
+            child: const Text('Reset App',
+                style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -478,7 +494,10 @@ class _SettingsScreenState extends State<SettingsScreen>
               Row(
                 children: [
                   GestureDetector(
-                    onTap: () => Navigator.maybePop(context),
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      Navigator.maybePop(context);
+                    },
                     child: Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
@@ -531,7 +550,8 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-  Widget _headerStatPill(IconData icon, String value, String label) {
+  Widget _headerStatPill(
+      IconData icon, String value, String label) {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 10),
@@ -556,8 +576,6 @@ class _SettingsScreenState extends State<SettingsScreen>
       ),
     );
   }
-
-  // PROFILE CARD
 
   Widget _buildProfileCard() {
     return Padding(
@@ -613,15 +631,15 @@ class _SettingsScreenState extends State<SettingsScreen>
               ),
             ),
             Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
-                color: const Color(0xFF89B0AE).withOpacity(0.15),
+                color: const Color(0xFF035955).withOpacity(0.12),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: const Text('v1.0.0',
                   style: TextStyle(
-                      color: Color(0xFF89B0AE),
+                      color: Color(0xFF035955),
                       fontSize: 11,
                       fontWeight: FontWeight.bold)),
             ),
@@ -630,8 +648,6 @@ class _SettingsScreenState extends State<SettingsScreen>
       ),
     );
   }
-
-  // DATA SAFETY CARD
 
   Widget _buildDataSafetyCard() {
     return Padding(
@@ -675,7 +691,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                   ),
                   SizedBox(height: 5),
                   Text(
-                    'We never touch your camera roll. LectureVault makes a copy of your photos for classification and stores them in your chosen folder. Your originals stay exactly where they are.',
+                    'We never touch your camera roll. LectureVault makes a copy of your photos and stores them in your chosen folder. Your originals stay exactly where they are.',
                     style: TextStyle(
                       color: Colors.grey,
                       fontSize: 11,
@@ -691,14 +707,12 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-  //  SECTION HEADER  
-
   Widget _buildSectionHeader(String title, IconData icon) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
       child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+        padding: const EdgeInsets.symmetric(
+            horizontal: 18, vertical: 13),
         decoration: BoxDecoration(
           color: AppColors.headerCard,
           borderRadius: BorderRadius.circular(14),
@@ -743,7 +757,6 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-
   Widget _buildStorageSection() {
     return _buildCard(
       Padding(
@@ -771,25 +784,34 @@ class _SettingsScreenState extends State<SettingsScreen>
                           fontSize: 13)),
                   const SizedBox(height: 3),
                   Text(
-                    _storagePath.isEmpty || _storagePath == 'Not set'
+                    _storagePath.isEmpty ||
+                            _storagePath == 'Not set'
                         ? 'Not configured'
                         : _storagePath,
-                    style:
-                        const TextStyle(color: Colors.grey, fontSize: 11),
+                    style: const TextStyle(
+                        color: Colors.grey, fontSize: 11),
                     overflow: TextOverflow.ellipsis,
                     maxLines: 2,
                   ),
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: _changeStoragePath,
+            const SizedBox(width: 10),
+            // solid button replaces the dim "Change" text link
+            ElevatedButton(
+              onPressed: _changeStoragePath,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF035955),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 14, vertical: 9),
+              ),
               child: const Text('Change',
                   style: TextStyle(
-                      color: Color(0xFF89B0AE),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13)),
+                      fontWeight: FontWeight.bold, fontSize: 12)),
             ),
           ],
         ),
@@ -797,122 +819,127 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-
-Widget _buildSubjectsSection() {
-  return _buildCard(
-    Column(
-      children: [
-        if (_subjects.isEmpty)
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Text('No subjects yet. Add one below!',
-                style: TextStyle(
-                    color: Colors.grey.shade500, fontSize: 13)),
-          ),
-        ..._subjects.asMap().entries.map((entry) {
-          final index = entry.key;
-          final subject = entry.value;
-          final isLast = index == _subjects.length - 1;
-          final iconColor = _iconColors[index % _iconColors.length];
-          final icon = _subjectIcons[index % _subjectIcons.length];
-          return Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 12),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: iconColor.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Icon(icon, color: iconColor, size: 18),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(subject,
-                          style: const TextStyle(
-                              color: AppColors.bodyText,
-                              fontWeight: FontWeight.w500,
-                              fontSize: 14)),
-                    ),
-                    // Edit button — always shown
-                    GestureDetector(
-                      onTap: () => _showRenameDialog(index),
-                      child: Container(
-                        padding: const EdgeInsets.all(7),
+  Widget _buildSubjectsSection() {
+    return _buildCard(
+      Column(
+        children: [
+          if (_subjects.isEmpty)
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Text('No subjects yet. Add one below!',
+                  style: TextStyle(
+                      color: Colors.grey.shade500, fontSize: 13)),
+            ),
+          ..._subjects.asMap().entries.map((entry) {
+            final index = entry.key;
+            final subject = entry.value;
+            final isLast = index == _subjects.length - 1;
+            final iconColor =
+                _iconColors[index % _iconColors.length];
+            final icon =
+                _subjectIcons[index % _subjectIcons.length];
+            return Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 12),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF035955).withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(8),
+                          color: iconColor.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(10),
                         ),
-                        child: const Icon(Icons.edit_rounded,
-                            color: Color(0xFF035955), size: 15),
+                        child:
+                            Icon(icon, color: iconColor, size: 18),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    // Delete button — hidden for Unclassified
-                    if (subject != 'Unclassified')
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(subject,
+                            style: const TextStyle(
+                                color: AppColors.bodyText,
+                                fontWeight: FontWeight.w500,
+                                fontSize: 14)),
+                      ),
+                      // edit button uses solid teal color, clearly visible
                       GestureDetector(
-                        onTap: () => _showDeleteSubjectDialog(index),
+                        onTap: () => _showRenameDialog(index),
                         child: Container(
                           padding: const EdgeInsets.all(7),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFE07A5F).withOpacity(0.08),
+                            color: const Color(0xFF035955)
+                                .withOpacity(0.1),
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: const Icon(
-                              Icons.delete_outline_rounded,
-                              color: Color(0xFFE07A5F),
-                              size: 15),
+                          child: const Icon(Icons.edit_rounded,
+                              color: Color(0xFF035955), size: 15),
                         ),
                       ),
-                  ],
-                ),
-              ),
-              if (!isLast)
-                const Divider(
-                    height: 1,
-                    color: Color(0xFFF0F0F0),
-                    indent: 16,
-                    endIndent: 16),
-            ],
-          );
-        }),
-        const Divider(height: 1, color: Color(0xFFF0F0F0)),
-        GestureDetector(
-          onTap: _showAddSubjectDialog,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 16, vertical: 14),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF89B0AE).withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(10),
+                      const SizedBox(width: 8),
+                      // delete button uses solid red, clearly visible
+                      if (subject != 'Unclassified')
+                        GestureDetector(
+                          onTap: () =>
+                              _showDeleteSubjectDialog(index),
+                          child: Container(
+                            padding: const EdgeInsets.all(7),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFE07A5F)
+                                  .withOpacity(0.1),
+                              borderRadius:
+                                  BorderRadius.circular(8),
+                            ),
+                            child: const Icon(
+                                Icons.delete_outline_rounded,
+                                color: Color(0xFFE07A5F),
+                                size: 15),
+                          ),
+                        ),
+                    ],
                   ),
-                  child: const Icon(Icons.add_rounded,
-                      color: Color(0xFF89B0AE), size: 18),
                 ),
-                const SizedBox(width: 12),
-                const Text('Add Subject',
-                    style: TextStyle(
-                        color: Color(0xFF89B0AE),
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14)),
+                if (!isLast)
+                  const Divider(
+                      height: 1,
+                      color: Color(0xFFF0F0F0),
+                      indent: 16,
+                      endIndent: 16),
               ],
+            );
+          }),
+          const Divider(height: 1, color: Color(0xFFF0F0F0)),
+          // add subject row uses solid teal icon and text
+          GestureDetector(
+            onTap: _showAddSubjectDialog,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF035955).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.add_rounded,
+                        color: Color(0xFF035955), size: 18),
+                  ),
+                  const SizedBox(width: 12),
+                  const Text('Add Subject',
+                      style: TextStyle(
+                          color: Color(0xFF035955),
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14)),
+                ],
+              ),
             ),
           ),
-        ),
-      ],
-    ),
-  );
-}
-
-  // CLASSIFICATION 
+        ],
+      ),
+    );
+  }
 
   Widget _buildClassificationSection() {
     return _buildCard(
@@ -999,9 +1026,9 @@ Widget _buildSubjectsSection() {
               Switch(
                 value: value,
                 onChanged: onChanged,
-                activeColor: const Color(0xFF89B0AE),
-                activeTrackColor:
-                    const Color(0xFF89B0AE).withOpacity(0.3),
+                // active track uses solid brand teal
+                activeColor: Colors.white,
+                activeTrackColor: const Color(0xFF035955),
                 inactiveThumbColor: Colors.grey.shade400,
                 inactiveTrackColor: Colors.grey.shade200,
               ),
@@ -1017,7 +1044,6 @@ Widget _buildSubjectsSection() {
       ],
     );
   }
-
 
   Widget _buildDangerZone() {
     return Padding(
@@ -1044,8 +1070,7 @@ Widget _buildSubjectsSection() {
                   Container(
                     padding: const EdgeInsets.all(6),
                     decoration: BoxDecoration(
-                      color:
-                          const Color(0xFFE07A5F).withOpacity(0.1),
+                      color: const Color(0xFFE07A5F).withOpacity(0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: const Icon(Icons.warning_amber_rounded,
@@ -1072,8 +1097,7 @@ Widget _buildSubjectsSection() {
               leading: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color:
-                      const Color(0xFFE07A5F).withOpacity(0.1),
+                  color: const Color(0xFFE07A5F).withOpacity(0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(Icons.delete_sweep_rounded,
@@ -1086,11 +1110,10 @@ Widget _buildSubjectsSection() {
                       fontSize: 13)),
               subtitle: const Text(
                   'Clear all settings and go back to setup',
-                  style: TextStyle(fontSize: 11, color: Colors.grey)),
-              trailing: Icon(Icons.arrow_forward_ios_rounded,
-                  size: 13,
-                  color:
-                      const Color(0xFFE07A5F).withOpacity(0.5)),
+                  style:
+                      TextStyle(fontSize: 11, color: Colors.grey)),
+              trailing: const Icon(Icons.arrow_forward_ios_rounded,
+                  size: 13, color: Color(0xFFE07A5F)),
             ),
           ],
         ),
@@ -1098,4 +1121,3 @@ Widget _buildSubjectsSection() {
     );
   }
 }
-

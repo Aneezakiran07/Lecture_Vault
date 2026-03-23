@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'core/constants/colors.dart';
+import 'screens/splash/splash_screen.dart';
 import 'screens/onboarding/folder_setup_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/upload/upload_screen.dart';
 import 'screens/folder_view/folder_view_screen.dart';
 import 'screens/settings/settings_screen.dart';
-import 'services/storage_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -14,17 +14,12 @@ void main() async {
   // load .env before anything else so api key is available
   await dotenv.load(fileName: '.env');
 
-  // check if user already completed onboarding
-  final setupDone = await StorageService.isSetupDone();
-
-  runApp(LectureVaultApp(
-    startRoute: setupDone ? '/home' : '/onboarding',
-  ));
+  // always start at splash which handles the setup check internally
+  runApp(const LectureVaultApp());
 }
 
 class LectureVaultApp extends StatelessWidget {
-  final String startRoute;
-  const LectureVaultApp({super.key, required this.startRoute});
+  const LectureVaultApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -35,8 +30,10 @@ class LectureVaultApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: AppColors.headerCard),
         useMaterial3: true,
       ),
-      initialRoute: startRoute,
+      // splash is now the entry point
+      initialRoute: '/splash',
       routes: {
+        '/splash': (_) => const SplashScreen(),
         '/onboarding': (_) => const FolderSetupScreen(),
         '/home': (_) => const HomeScreen(),
         '/upload': (_) => const UploadScreen(),

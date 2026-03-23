@@ -25,6 +25,7 @@ class FolderViewScreen extends StatefulWidget {
 
 class _FolderViewScreenState extends State<FolderViewScreen>
     with TickerProviderStateMixin {
+
   late AnimationController _headerAnimController;
   late Animation<double> _headerSlideAnim;
 
@@ -116,14 +117,14 @@ class _FolderViewScreenState extends State<FolderViewScreen>
 
   void _applySortToList(List<Map<String, dynamic>> list) {
     if (_selectedSort == 'Newest') {
-      list.sort((a, b) =>
-          (b['modified'] as DateTime).compareTo(a['modified'] as DateTime));
+      list.sort((a, b) => (b['modified'] as DateTime)
+          .compareTo(a['modified'] as DateTime));
     } else if (_selectedSort == 'Oldest') {
-      list.sort((a, b) =>
-          (a['modified'] as DateTime).compareTo(b['modified'] as DateTime));
+      list.sort((a, b) => (a['modified'] as DateTime)
+          .compareTo(b['modified'] as DateTime));
     } else if (_selectedSort == 'Name') {
-      list.sort(
-          (a, b) => (a['label'] as String).compareTo(b['label'] as String));
+      list.sort((a, b) =>
+          (a['label'] as String).compareTo(b['label'] as String));
     }
   }
 
@@ -200,7 +201,8 @@ class _FolderViewScreenState extends State<FolderViewScreen>
     await _loadPhotos();
   }
 
-  void _showPhotoOptions(BuildContext context, Map<String, dynamic> photo) {
+  void _showPhotoOptions(
+      BuildContext context, Map<String, dynamic> photo) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -212,17 +214,19 @@ class _FolderViewScreenState extends State<FolderViewScreen>
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16)),
         title: const Text('Sort by',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            style:
+                TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: _sortOptions.map((s) {
             return RadioListTile<String>(
               value: s,
               groupValue: _selectedSort,
-              activeColor: const Color(0xFF89B0AE),
+              // active radio uses solid brand teal
+              activeColor: const Color(0xFF035955),
               title: Text(s),
               onChanged: (val) {
                 setState(() {
@@ -278,13 +282,12 @@ class _FolderViewScreenState extends State<FolderViewScreen>
     );
   }
 
-  // DELETE FOLDER DIALOG 
   void _showDeleteFolderDialog() {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: [
             Container(
@@ -298,8 +301,8 @@ class _FolderViewScreenState extends State<FolderViewScreen>
             ),
             const SizedBox(width: 10),
             const Text('Delete Folder',
-                style:
-                    TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                style: TextStyle(
+                    fontWeight: FontWeight.bold, fontSize: 16)),
           ],
         ),
         content: RichText(
@@ -324,13 +327,20 @@ class _FolderViewScreenState extends State<FolderViewScreen>
             child: Text('Cancel',
                 style: TextStyle(color: Colors.grey.shade600)),
           ),
-          TextButton(
+          ElevatedButton(
             onPressed: () async {
               Navigator.pop(context);
               await _deleteFolderFromAppOnly();
             },
-            child: const Text('Remove from app only',
-                style: TextStyle(color: Color(0xFF4A90D9))),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4A90D9),
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('App only',
+                style: TextStyle(fontWeight: FontWeight.bold)),
           ),
           ElevatedButton(
             onPressed: () async {
@@ -340,10 +350,12 @@ class _FolderViewScreenState extends State<FolderViewScreen>
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFE07A5F),
               foregroundColor: Colors.white,
+              elevation: 0,
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10)),
             ),
-            child: const Text('Delete everything'),
+            child: const Text('Delete all',
+                style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -352,20 +364,18 @@ class _FolderViewScreenState extends State<FolderViewScreen>
 
   Future<void> _deleteFolderFromAppOnly() async {
     final subjects = await StorageService.getSubjects();
-    final updated = subjects.where((s) => s != _folderName).toList();
+    final updated =
+        subjects.where((s) => s != _folderName).toList();
     await StorageService.saveSubjects(updated);
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-              '✓ "$_folderName" removed from app. Files kept on device.'),
-          backgroundColor: const Color(0xFF035955),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12)),
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('"$_folderName" removed from app. Files kept.'),
+        backgroundColor: const Color(0xFF035955),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12)),
+      ));
       Navigator.pushNamedAndRemoveUntil(
           context, '/home', (route) => false);
     }
@@ -380,38 +390,31 @@ class _FolderViewScreenState extends State<FolderViewScreen>
       }
 
       final subjects = await StorageService.getSubjects();
-      final updated = subjects.where((s) => s != _folderName).toList();
+      final updated =
+          subjects.where((s) => s != _folderName).toList();
       await StorageService.saveSubjects(updated);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('✓ "$_folderName" and all photos deleted'),
-            backgroundColor: const Color(0xFF035955),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12)),
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('"$_folderName" and all photos deleted'),
+          backgroundColor: const Color(0xFF035955),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12)),
+        ));
         Navigator.pushNamedAndRemoveUntil(
             context, '/home', (route) => false);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Failed to delete folder'),
-            backgroundColor: const Color(0xFFE07A5F),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12)),
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Failed to delete folder'),
+          backgroundColor: Color(0xFFE07A5F),
+          behavior: SnackBarBehavior.floating,
+        ));
       }
     }
   }
-
-  // MOVE TO FOLDER (Unclassified only
 
   void _showMoveSelectedDialog() {
     showModalBottomSheet(
@@ -422,7 +425,8 @@ class _FolderViewScreenState extends State<FolderViewScreen>
         future: StorageService.getSubjects(),
         builder: (context, snapshot) {
           final allSubjects = snapshot.data ?? [];
-         final destinations = allSubjects.where((s) => s != _folderName).toList();
+          final destinations =
+              allSubjects.where((s) => s != _folderName).toList();
 
           return Container(
             margin: const EdgeInsets.all(16),
@@ -436,7 +440,8 @@ class _FolderViewScreenState extends State<FolderViewScreen>
                 Container(
                   width: 40,
                   height: 4,
-                  margin: const EdgeInsets.only(top: 12, bottom: 16),
+                  margin:
+                      const EdgeInsets.only(top: 12, bottom: 16),
                   decoration: BoxDecoration(
                     color: Colors.grey.shade300,
                     borderRadius: BorderRadius.circular(2),
@@ -446,7 +451,8 @@ class _FolderViewScreenState extends State<FolderViewScreen>
                   padding: EdgeInsets.fromLTRB(20, 0, 20, 12),
                   child: Text('Move to folder',
                       style: TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 16)),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16)),
                 ),
                 if (destinations.isEmpty)
                   Padding(
@@ -502,23 +508,19 @@ class _FolderViewScreenState extends State<FolderViewScreen>
     await _loadPhotos();
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(failed == 0
-              ? '✓ $moved photo${moved > 1 ? 's' : ''} moved to $targetSubject'
-              : '$moved moved, $failed failed'),
-          backgroundColor: failed == 0
-              ? const Color(0xFF035955)
-              : const Color(0xFFE07A5F),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12)),
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(failed == 0
+            ? '$moved photo${moved > 1 ? 's' : ''} moved to $targetSubject'
+            : '$moved moved, $failed failed'),
+        backgroundColor: failed == 0
+            ? const Color(0xFF035955)
+            : const Color(0xFFE07A5F),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12)),
+      ));
     }
   }
-
-  // ── BUILD ────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -527,8 +529,10 @@ class _FolderViewScreenState extends State<FolderViewScreen>
         _folderName.isEmpty ? widget.folderName : _folderName;
     IconData displayIcon = widget.folderIcon;
     if (args is Map) {
-      displayName = args['folderName'] as String? ?? widget.folderName;
-      displayIcon = args['icon'] as IconData? ?? widget.folderIcon;
+      displayName =
+          args['folderName'] as String? ?? widget.folderName;
+      displayIcon =
+          args['icon'] as IconData? ?? widget.folderIcon;
     }
 
     if (displayName == 'Unclassified') {
@@ -568,20 +572,21 @@ class _FolderViewScreenState extends State<FolderViewScreen>
           ),
         ],
       ),
-      bottomNavigationBar: _isSelecting ? _buildSelectionBar() : null,
+      bottomNavigationBar:
+          _isSelecting ? _buildSelectionBar() : null,
       floatingActionButton: _isSelecting
           ? null
           : FloatingActionButton(
-              onPressed: () => Navigator.pushNamed(context, '/upload')
-                  .then((_) => _loadPhotos()),
-              backgroundColor: AppColors.headerCard,
+              onPressed: () =>
+                  Navigator.pushNamed(context, '/upload')
+                      .then((_) => _loadPhotos()),
+              backgroundColor: const Color(0xFF035955),
               foregroundColor: Colors.white,
+              elevation: 4,
               child: const Icon(Icons.add_photo_alternate_rounded),
             ),
     );
   }
-
-  // ── HEADER ───────────────────────────────────────────────────────
 
   Widget _buildHeader(String displayName, IconData displayIcon) {
     return Container(
@@ -668,8 +673,8 @@ class _FolderViewScreenState extends State<FolderViewScreen>
                       color: Colors.white.withOpacity(0.18),
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    child:
-                        Icon(displayIcon, color: Colors.white, size: 28),
+                    child: Icon(displayIcon,
+                        color: Colors.white, size: 28),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -683,7 +688,7 @@ class _FolderViewScreenState extends State<FolderViewScreen>
                                 fontWeight: FontWeight.bold)),
                         const SizedBox(height: 4),
                         Text(
-                          '${_photos.length} photo${_photos.length != 1 ? 's' : ''} • ${_formatSize(_totalSizeBytes)}',
+                          '${_photos.length} photo${_photos.length != 1 ? 's' : ''} - ${_formatSize(_totalSizeBytes)}',
                           style: const TextStyle(
                               color: Colors.white70, fontSize: 12),
                         ),
@@ -695,13 +700,14 @@ class _FolderViewScreenState extends State<FolderViewScreen>
               const SizedBox(height: 18),
               Row(
                 children: [
-                  _headerStatChip(
-                      Icons.photo_rounded, '${_photos.length} Photos'),
+                  _headerStatChip(Icons.photo_rounded,
+                      '${_photos.length} Photos'),
+                  const SizedBox(width: 8),
+                  _headerStatChip(Icons.storage_rounded,
+                      _formatSize(_totalSizeBytes)),
                   const SizedBox(width: 8),
                   _headerStatChip(
-                      Icons.storage_rounded, _formatSize(_totalSizeBytes)),
-                  const SizedBox(width: 8),
-                  _headerStatChip(Icons.folder_rounded, displayName),
+                      Icons.folder_rounded, displayName),
                 ],
               ),
             ],
@@ -733,8 +739,6 @@ class _FolderViewScreenState extends State<FolderViewScreen>
     );
   }
 
-  // ── FILTER ROW ───────────────────────────────────────────────────
-
   Widget _buildFilterRow() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -748,27 +752,31 @@ class _FolderViewScreenState extends State<FolderViewScreen>
                 children: _filters.map((f) {
                   final isSelected = _selectedFilter == f;
                   return GestureDetector(
-                    onTap: () => setState(() => _selectedFilter = f),
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() => _selectedFilter = f);
+                    },
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 200),
                       margin: const EdgeInsets.only(right: 8),
                       padding: const EdgeInsets.symmetric(
                           horizontal: 16, vertical: 8),
                       decoration: BoxDecoration(
+                        // selected pill uses full solid teal, always vivid
                         color: isSelected
-                            ? const Color(0xFF89B0AE)
+                            ? const Color(0xFF035955)
                             : Colors.white,
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
                           color: isSelected
-                              ? const Color(0xFF89B0AE)
-                              : Colors.grey.shade300,
+                              ? const Color(0xFF035955)
+                              : const Color(0xFFCCCCCC),
                         ),
                         boxShadow: isSelected
                             ? const [
                                 BoxShadow(
-                                    color: Color(0x3389B0AE),
-                                    blurRadius: 6,
+                                    color: Color(0x44035955),
+                                    blurRadius: 8,
                                     offset: Offset(0, 2))
                               ]
                             : [],
@@ -777,11 +785,12 @@ class _FolderViewScreenState extends State<FolderViewScreen>
                           style: TextStyle(
                               color: isSelected
                                   ? Colors.white
-                                  : Colors.grey.shade600,
+                                  // unselected text is medium gray, not dim
+                                  : const Color(0xFF555555),
                               fontSize: 12,
                               fontWeight: isSelected
                                   ? FontWeight.bold
-                                  : FontWeight.normal)),
+                                  : FontWeight.w500)),
                     ),
                   );
                 }).toList(),
@@ -789,25 +798,41 @@ class _FolderViewScreenState extends State<FolderViewScreen>
             ),
           ),
           const SizedBox(width: 8),
+          // sort button uses solid brand color so it is always visible
           GestureDetector(
             onTap: _showSortDialog,
             child: Container(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: const Color(0xFF035955),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.grey.shade300),
+                boxShadow: const [
+                  BoxShadow(
+                      color: Color(0x44035955),
+                      blurRadius: 8,
+                      offset: Offset(0, 2)),
+                ],
               ),
-              child: Icon(Icons.sort_rounded,
-                  color: Colors.grey.shade600, size: 20),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.sort_rounded,
+                      color: Colors.white, size: 16),
+                  const SizedBox(width: 4),
+                  Text(_selectedSort,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold)),
+                ],
+              ),
             ),
           ),
         ],
       ),
     );
   }
-
-  // ── PHOTO GRID ───────────────────────────────────────────────────
 
   Widget _buildPhotoGrid() {
     return GridView.builder(
@@ -843,16 +868,16 @@ class _FolderViewScreenState extends State<FolderViewScreen>
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: isSelected
-                ? const Color(0xFF89B0AE)
+                ? const Color(0xFF035955)
                 : const Color(0xFFEEEEEE),
             width: isSelected ? 2 : 1,
           ),
           boxShadow: [
             BoxShadow(
               color: isSelected
-                  ? const Color(0x3389B0AE)
+                  ? const Color(0x44035955)
                   : const Color(0x0A000000),
-              blurRadius: isSelected ? 10 : 6,
+              blurRadius: isSelected ? 12 : 6,
               offset: const Offset(0, 2),
             ),
           ],
@@ -911,7 +936,7 @@ class _FolderViewScreenState extends State<FolderViewScreen>
                 child: Container(
                   padding: const EdgeInsets.all(3),
                   decoration: const BoxDecoration(
-                      color: Color(0xFF89B0AE),
+                      color: Color(0xFF035955),
                       shape: BoxShape.circle),
                   child: const Icon(Icons.check_rounded,
                       color: Colors.white, size: 14),
@@ -922,11 +947,12 @@ class _FolderViewScreenState extends State<FolderViewScreen>
                 top: 8,
                 right: 8,
                 child: GestureDetector(
-                  onTap: () => _showPhotoOptions(context, photo),
+                  onTap: () =>
+                      _showPhotoOptions(context, photo),
                   child: Container(
                     padding: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.25),
+                      color: Colors.black.withOpacity(0.35),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: const Icon(Icons.more_horiz_rounded,
@@ -939,8 +965,6 @@ class _FolderViewScreenState extends State<FolderViewScreen>
       ),
     );
   }
-
-  // ── PHOTO LIST ───────────────────────────────────────────────────
 
   Widget _buildPhotoList() {
     return ListView.builder(
@@ -968,7 +992,7 @@ class _FolderViewScreenState extends State<FolderViewScreen>
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
                 color: isSelected
-                    ? const Color(0xFF89B0AE)
+                    ? const Color(0xFF035955)
                     : const Color(0xFFEEEEEE),
                 width: isSelected ? 2 : 1,
               ),
@@ -1018,13 +1042,14 @@ class _FolderViewScreenState extends State<FolderViewScreen>
                   ),
                 ),
                 Text(photo['size'] as String,
-                    style: TextStyle(
-                        color: Colors.grey.shade400, fontSize: 11)),
+                    style: const TextStyle(
+                        color: Color(0xFF8A9BA8), fontSize: 11)),
                 const SizedBox(width: 8),
                 GestureDetector(
-                  onTap: () => _showPhotoOptions(context, photo),
-                  child: Icon(Icons.more_vert_rounded,
-                      color: Colors.grey.shade400, size: 20),
+                  onTap: () =>
+                      _showPhotoOptions(context, photo),
+                  child: const Icon(Icons.more_vert_rounded,
+                      color: Color(0xFF8A9BA8), size: 20),
                 ),
               ],
             ),
@@ -1033,8 +1058,6 @@ class _FolderViewScreenState extends State<FolderViewScreen>
       },
     );
   }
-
-  // ── EMPTY STATE ──────────────────────────────────────────────────
 
   Widget _buildEmptyState() {
     return Center(
@@ -1060,25 +1083,32 @@ class _FolderViewScreenState extends State<FolderViewScreen>
                     fontSize: 18)),
             const SizedBox(height: 8),
             Text(
-              'Upload whiteboard photos and they\'ll be sorted here automatically',
+              'Upload whiteboard photos and they will be sorted here automatically',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+              style: TextStyle(
+                  color: Colors.grey.shade500, fontSize: 13),
             ),
             const SizedBox(height: 24),
+            // vivid solid upload button, never dim
             ElevatedButton.icon(
-              onPressed: () => Navigator.pushNamed(context, '/upload')
-                  .then((_) => _loadPhotos()),
+              onPressed: () =>
+                  Navigator.pushNamed(context, '/upload')
+                      .then((_) => _loadPhotos()),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF89B0AE),
+                backgroundColor: const Color(0xFF035955),
                 foregroundColor: Colors.white,
+                elevation: 3,
+                shadowColor:
+                    const Color(0xFF035955).withOpacity(0.4),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14)),
                 padding: const EdgeInsets.symmetric(
-                    horizontal: 24, vertical: 12),
+                    horizontal: 28, vertical: 14),
               ),
               icon: const Icon(Icons.upload_rounded, size: 18),
               label: const Text('Upload Now',
-                  style: TextStyle(fontWeight: FontWeight.bold)),
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 15)),
             ),
           ],
         ),
@@ -1087,98 +1117,100 @@ class _FolderViewScreenState extends State<FolderViewScreen>
   }
 
   Widget _buildSelectionBar() {
-  return Container(
-    padding: EdgeInsets.fromLTRB(
-        20, 12, 20, MediaQuery.of(context).padding.bottom + 12),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      boxShadow: [
-        BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 12,
-            offset: const Offset(0, -4)),
-      ],
-    ),
-    child: Row(
-      children: [
-        GestureDetector(
-          onTap: () {
-            HapticFeedback.lightImpact();
-            setState(() => _selectedIds.clear());
-          },
-          child: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Icon(Icons.close_rounded,
-                color: Colors.grey, size: 20),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text('${_selectedIds.length} selected',
-              style: const TextStyle(
-                  color: AppColors.bodyText,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15)),
-        ),
-        GestureDetector(
-          onTap: _showMoveSelectedDialog,
-          child: Container(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 16, vertical: 10),
-            decoration: BoxDecoration(
-              color: const Color(0xFF035955).withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                  color: const Color(0xFF035955).withOpacity(0.3)),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.drive_file_move_rounded,
-                    color: Color(0xFF035955), size: 16),
-                SizedBox(width: 6),
-                Text('Move',
-                    style: TextStyle(
-                        color: Color(0xFF035955),
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13)),
-              ],
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+          20,
+          12,
+          20,
+          MediaQuery.of(context).padding.bottom + 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 12,
+              offset: const Offset(0, -4)),
+        ],
+      ),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: () {
+              HapticFeedback.lightImpact();
+              setState(() => _selectedIds.clear());
+            },
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.close_rounded,
+                  color: Colors.grey, size: 20),
             ),
           ),
-        ),
-        const SizedBox(width: 8),
-        GestureDetector(
-          onTap: _deleteSelected,
-          child: Container(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 16, vertical: 10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFE07A5F).withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                  color: const Color(0xFFE07A5F).withOpacity(0.3)),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.delete_outline_rounded,
-                    color: Color(0xFFE07A5F), size: 16),
-                SizedBox(width: 6),
-                Text('Delete',
-                    style: TextStyle(
-                        color: Color(0xFFE07A5F),
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13)),
-              ],
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text('${_selectedIds.length} selected',
+                style: const TextStyle(
+                    color: AppColors.bodyText,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15)),
+          ),
+          // move button uses solid teal
+          GestureDetector(
+            onTap: _showMoveSelectedDialog,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF035955),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.drive_file_move_rounded,
+                      color: Colors.white, size: 16),
+                  SizedBox(width: 6),
+                  Text('Move',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13)),
+                ],
+              ),
             ),
           ),
-        ),
-      ],
-    ),
-  );
-}
+          const SizedBox(width: 8),
+          // delete button uses solid red
+          GestureDetector(
+            onTap: _deleteSelected,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE07A5F),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.delete_outline_rounded,
+                      color: Colors.white, size: 16),
+                  SizedBox(width: 6),
+                  Text('Delete',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildBottomSheet(Map<String, dynamic> photo) {
     return Container(
       margin: const EdgeInsets.all(16),
@@ -1225,12 +1257,14 @@ class _FolderViewScreenState extends State<FolderViewScreen>
                     children: [
                       Text(photo['label'] as String,
                           style: const TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 13),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis),
                       Text(photo['date'] as String,
                           style: TextStyle(
-                              color: Colors.grey.shade500, fontSize: 12)),
+                              color: Colors.grey.shade500,
+                              fontSize: 12)),
                     ],
                   ),
                 ),
@@ -1243,25 +1277,26 @@ class _FolderViewScreenState extends State<FolderViewScreen>
           _sheetTile(Icons.open_in_full_rounded, 'Open',
               const Color(0xFF035955), () {
             Navigator.pop(context);
-            final index =
-                _photos.indexWhere((p) => p['path'] == photo['path']);
-            if (index != -1) _openViewer(index);  
+            final index = _photos
+                .indexWhere((p) => p['path'] == photo['path']);
+            if (index != -1) _openViewer(index);
           }),
-          // Move to folder — only in Unclassified
           _sheetTile(Icons.drive_file_move_rounded, 'Move to folder',
               const Color(0xFF89B0AE), () {
             Navigator.pop(context);
-            setState(() => _selectedIds.add(photo['id'] as int));
+            setState(
+                () => _selectedIds.add(photo['id'] as int));
             _showMoveSelectedDialog();
           }),
-
           _sheetTile(Icons.share_rounded, 'Share',
-              const Color(0xFF4A90D9), () => Navigator.pop(context)),
+              const Color(0xFF4A90D9),
+              () => Navigator.pop(context)),
           _sheetTile(
               Icons.delete_outline_rounded,
               'Delete',
               const Color(0xFFE07A5F),
-              () => _deleteSinglePhoto(photo['path'] as String)),
+              () =>
+                  _deleteSinglePhoto(photo['path'] as String)),
           const SizedBox(height: 16),
         ],
       ),

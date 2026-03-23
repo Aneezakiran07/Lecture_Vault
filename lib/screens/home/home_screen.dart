@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../core/constants/colors.dart';
 import '../../services/storage_service.dart';
 
@@ -10,7 +11,9 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin {
+
   final int _selectedNavIndex = 0;
 
   List<String> _subjects = [];
@@ -19,8 +22,11 @@ class _HomeScreenState extends State<HomeScreen> {
   int _totalPhotos = 0;
   bool _isLoading = true;
 
-  final TextEditingController _newSubjectController =
-      TextEditingController();
+  final TextEditingController _newSubjectController = TextEditingController();
+
+  // fade-in animation for the grid
+  late AnimationController _fadeController;
+  late Animation<double> _fadeAnim;
 
   final List<IconData> _subjectIcons = [
     Icons.calculate_rounded,
@@ -58,16 +64,21 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _fadeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+    _fadeAnim =
+        CurvedAnimation(parent: _fadeController, curve: Curves.easeOut);
     _loadData();
   }
-
 
   @override
   void dispose() {
     _newSubjectController.dispose();
+    _fadeController.dispose();
     super.dispose();
   }
-  
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
@@ -81,6 +92,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _basePath = basePath;
         _isLoading = false;
       });
+      _fadeController.forward(from: 0);
       return;
     }
 
@@ -95,6 +107,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _totalPhotos = total;
       _isLoading = false;
     });
+    _fadeController.forward(from: 0);
   }
 
   Future<void> _addSubject(String name) async {
@@ -107,7 +120,6 @@ class _HomeScreenState extends State<HomeScreen> {
     await _loadData();
     _showSnack('Subject "$name" added');
   }
-
 
   Future<void> _deleteSubjectFromListOnly(String name) async {
     final updated = [..._subjects]..remove(name);
@@ -128,7 +140,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final updated = [..._subjects]..remove(name);
     await StorageService.saveSubjects(updated);
     await _loadData();
-    _showSnack('✓ "$name" and its photos deleted');
+    _showSnack('"$name" and its photos deleted');
   }
 
   void _showAddSubjectDialog() {
@@ -139,8 +151,8 @@ class _HomeScreenState extends State<HomeScreen> {
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20)),
         title: const Text('Add Subject',
-            style: TextStyle(
-                fontWeight: FontWeight.bold, fontSize: 16)),
+            style:
+                TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         content: TextField(
           controller: _newSubjectController,
           autofocus: true,
@@ -164,6 +176,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Text('Cancel',
                 style: TextStyle(color: Colors.grey.shade600)),
           ),
+          // vivid solid button, never dim
           ElevatedButton(
             onPressed: () {
               final name = _newSubjectController.text.trim();
@@ -171,22 +184,22 @@ class _HomeScreenState extends State<HomeScreen> {
               _addSubject(name);
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF89B0AE),
+              backgroundColor: const Color(0xFF035955),
               foregroundColor: Colors.white,
+              elevation: 0,
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10)),
             ),
-            child: const Text('Add'),
+            child: const Text('Add',
+                style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
     );
   }
 
-  //UNIFIED DELETE DIALOG (same as settings + folder view) 
-
   void _showDeleteSubjectDialog(String name) {
-    if (name == 'Unclassified') return; 
+    if (name == 'Unclassified') return;
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
@@ -214,8 +227,7 @@ class _HomeScreenState extends State<HomeScreen> {
             style: const TextStyle(
                 fontSize: 13, color: Colors.grey, height: 1.5),
             children: [
-              const TextSpan(
-                  text: 'What would you like to do with '),
+              const TextSpan(text: 'What would you like to do with '),
               TextSpan(
                 text: '"$name"',
                 style: const TextStyle(
@@ -232,14 +244,23 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Text('Cancel',
                 style: TextStyle(color: Colors.grey.shade600)),
           ),
-          TextButton(
+          // blue solid button for softer action
+          ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
               _deleteSubjectFromListOnly(name);
             },
-            child: const Text('Remove from app only',
-                style: TextStyle(color: Color(0xFF4A90D9))),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4A90D9),
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('App only',
+                style: TextStyle(fontWeight: FontWeight.bold)),
           ),
+          // red solid button for destructive action
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
@@ -248,10 +269,12 @@ class _HomeScreenState extends State<HomeScreen> {
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFE07A5F),
               foregroundColor: Colors.white,
+              elevation: 0,
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10)),
             ),
-            child: const Text('Delete everything'),
+            child: const Text('Delete all',
+                style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -285,23 +308,26 @@ class _HomeScreenState extends State<HomeScreen> {
                   ? const Center(
                       child: CircularProgressIndicator(
                           color: AppColors.headerCard))
-                  : SingleChildScrollView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const SizedBox(height: 20),
-                          _buildStatCards(),
-                          const SizedBox(height: 24),
-                          if (_subjects.isEmpty)
-                            _buildEmptyState()
-                          else ...[
-                            _buildSectionHeader(),
-                            const SizedBox(height: 16),
-                            _buildSubjectGrid(),
+                  : FadeTransition(
+                      opacity: _fadeAnim,
+                      child: SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(height: 20),
+                            _buildStatCards(),
+                            const SizedBox(height: 24),
+                            if (_subjects.isEmpty)
+                              _buildEmptyState()
+                            else ...[
+                              _buildSectionHeader(),
+                              const SizedBox(height: 16),
+                              _buildSubjectGrid(),
+                            ],
+                            const SizedBox(height: 100),
                           ],
-                          const SizedBox(height: 100),
-                        ],
+                        ),
                       ),
                     ),
             ),
@@ -365,10 +391,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 20),
               const Text(
-                'Hi Folk!!!',
-                style:
-                    TextStyle(color: Colors.white70, fontSize: 13),
-                    
+                'Hi there!',
+                style: TextStyle(color: Colors.white70, fontSize: 13),
               ),
               const SizedBox(height: 4),
               const Text(
@@ -412,8 +436,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  //STAT CARDS
-
   Widget _buildStatCards() {
     final stats = [
       {
@@ -444,8 +466,7 @@ class _HomeScreenState extends State<HomeScreen> {
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(16),
-                border:
-                    Border.all(color: const Color(0xFFEEEEEE)),
+                border: Border.all(color: const Color(0xFFEEEEEE)),
                 boxShadow: const [
                   BoxShadow(
                       color: Color(0x0D000000),
@@ -458,8 +479,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Container(
                     padding: const EdgeInsets.all(7),
                     decoration: BoxDecoration(
-                      color:
-                          (s['color'] as Color).withOpacity(0.12),
+                      color: (s['color'] as Color).withOpacity(0.12),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(s['icon'] as IconData,
@@ -491,8 +511,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-
-  // section header with title and add button
 
   Widget _buildSectionHeader() {
     return Padding(
@@ -540,13 +558,19 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     const SizedBox(width: 8),
+                    // add button is always clearly visible on the teal header
                     GestureDetector(
-                      onTap: _showAddSubjectDialog,
+                      onTap: () {
+                        HapticFeedback.lightImpact();
+                        _showAddSubjectDialog();
+                      },
                       child: Container(
-                        padding: const EdgeInsets.all(5),
+                        padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
+                          color: Colors.white.withOpacity(0.25),
                           borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                              color: Colors.white.withOpacity(0.4)),
                         ),
                         child: const Icon(Icons.add_rounded,
                             color: Colors.white, size: 16),
@@ -566,7 +590,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-
 
   Widget _buildSubjectGrid() {
     return Padding(
@@ -589,98 +612,101 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildSubjectCard(int index) {
-  final subject = _subjects[index];
-  final count = _photoCounts[subject] ?? 0;
-  final bgColor = _cardColors[index % _cardColors.length];
-  final iconColor = _iconColors[index % _iconColors.length];
-  final icon = _subjectIcons[index % _subjectIcons.length];
+    final subject = _subjects[index];
+    final count = _photoCounts[subject] ?? 0;
+    final bgColor = _cardColors[index % _cardColors.length];
+    final iconColor = _iconColors[index % _iconColors.length];
+    final icon = _subjectIcons[index % _subjectIcons.length];
 
-  return InkWell(
-    onTap: () => Navigator.pushNamed(
-      context,
-      '/folder',
-      arguments: {
-        'folderName': subject,
-        'icon': icon,
-        'basePath': _basePath,
+    return InkWell(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        Navigator.pushNamed(
+          context,
+          '/folder',
+          arguments: {
+            'folderName': subject,
+            'icon': icon,
+            'basePath': _basePath,
+          },
+        ).then((_) => _loadData());
       },
-    ).then((_) => _loadData()),
-    onLongPress: () => _showDeleteSubjectDialog(subject),
-    borderRadius: BorderRadius.circular(18),
-    child: Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFEEEEEE)),
-        boxShadow: const [
-          BoxShadow(
-              color: Color(0x0A000000),
-              blurRadius: 10,
-              offset: Offset(0, 3)),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: bgColor,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, color: iconColor, size: 22),
-              ),
-              // Delete button — hidden for Unclassified
-              if (subject != 'Unclassified')
-                GestureDetector(
-                  onTap: () => _showDeleteSubjectDialog(subject),
-                  child: Container(
-                    padding: const EdgeInsets.all(5),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE07A5F).withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(
-                        Icons.delete_outline_rounded,
-                        color: Color(0xFFE07A5F),
-                        size: 14),
+      onLongPress: () => _showDeleteSubjectDialog(subject),
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0xFFEEEEEE)),
+          boxShadow: const [
+            BoxShadow(
+                color: Color(0x0A000000),
+                blurRadius: 10,
+                offset: Offset(0, 3)),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: bgColor,
+                    borderRadius: BorderRadius.circular(12),
                   ),
+                  child: Icon(icon, color: iconColor, size: 22),
                 ),
-            ],
-          ),
-          const Spacer(),
-          Text(
-            subject,
-            style: const TextStyle(
-              color: AppColors.bodyText,
-              fontWeight: FontWeight.bold,
-              fontSize: 14,
+                // delete button always uses a solid color, never dim
+                if (subject != 'Unclassified')
+                  GestureDetector(
+                    onTap: () => _showDeleteSubjectDialog(subject),
+                    child: Container(
+                      padding: const EdgeInsets.all(5),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE07A5F).withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                          Icons.delete_outline_rounded,
+                          color: Color(0xFFE07A5F),
+                          size: 14),
+                    ),
+                  ),
+              ],
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Icon(Icons.photo_outlined,
-                  size: 12, color: Colors.grey.shade400),
-              const SizedBox(width: 4),
-              Text(
-                '$count photo${count != 1 ? 's' : ''}',
-                style: TextStyle(
-                    color: Colors.grey.shade500, fontSize: 11),
+            const Spacer(),
+            Text(
+              subject,
+              style: const TextStyle(
+                color: AppColors.bodyText,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
               ),
-            ],
-          ),
-        ],
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(Icons.photo_outlined,
+                    size: 12, color: Colors.grey.shade400),
+                const SizedBox(width: 4),
+                Text(
+                  '$count photo${count != 1 ? 's' : ''}',
+                  style: TextStyle(
+                      color: Colors.grey.shade500, fontSize: 11),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   Widget _buildEmptyState() {
     return Center(
@@ -711,19 +737,23 @@ class _HomeScreenState extends State<HomeScreen> {
                   TextStyle(color: Colors.grey.shade500, fontSize: 13),
             ),
             const SizedBox(height: 24),
+            // big vivid CTA button, never dim
             ElevatedButton.icon(
               onPressed: _showAddSubjectDialog,
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.headerCard,
+                backgroundColor: const Color(0xFF035955),
                 foregroundColor: Colors.white,
+                elevation: 3,
+                shadowColor: const Color(0xFF035955).withOpacity(0.4),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14)),
                 padding: const EdgeInsets.symmetric(
-                    horizontal: 24, vertical: 12),
+                    horizontal: 28, vertical: 14),
               ),
               icon: const Icon(Icons.add_rounded, size: 18),
               label: const Text('Add Subject',
-                  style: TextStyle(fontWeight: FontWeight.bold)),
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 15)),
             ),
           ],
         ),
@@ -764,6 +794,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final isSelected = _selectedNavIndex == index;
     return GestureDetector(
       onTap: () async {
+        HapticFeedback.selectionClick();
         if (index == 1) {
           await Navigator.pushNamed(context, '/upload');
           _loadData();
@@ -775,11 +806,11 @@ class _HomeScreenState extends State<HomeScreen> {
       },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(
-            horizontal: 20, vertical: 8),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         decoration: BoxDecoration(
           color: isSelected
-              ? AppColors.headerCard.withOpacity(0.1)
+              ? AppColors.headerCard.withOpacity(0.12)
               : Colors.transparent,
           borderRadius: BorderRadius.circular(14),
         ),
@@ -787,20 +818,21 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon,
+                // selected is brand teal, unselected is medium gray (not dim)
                 color: isSelected
                     ? AppColors.headerCard
-                    : Colors.grey.shade400,
+                    : const Color(0xFF8A9BA8),
                 size: 24),
             const SizedBox(height: 3),
             Text(label,
                 style: TextStyle(
                   color: isSelected
                       ? AppColors.headerCard
-                      : Colors.grey.shade400,
+                      : const Color(0xFF8A9BA8),
                   fontSize: 10,
                   fontWeight: isSelected
                       ? FontWeight.bold
-                      : FontWeight.normal,
+                      : FontWeight.w500,
                 )),
           ],
         ),
