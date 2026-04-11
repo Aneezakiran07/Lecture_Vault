@@ -12,6 +12,7 @@ import '../../services/permission_service.dart';
 import '../../services/ocr_result.dart';
 import '../image_viewer_screen.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../../services/search_service.dart';
 
 class UploadScreen extends StatefulWidget {
   const UploadScreen({super.key});
@@ -582,60 +583,81 @@ class _UploadScreenState extends State<UploadScreen>
   }
 
   // SAVE
+Future<void> _confirmAndSave() async {
+  if (_basePath == null) {
+    _showSnack('No storage path set.', isError: true);
+    return;
+  }
+  HapticFeedback.mediumImpact();
+  setState(() {
+    _isSaving = true;
+    _currentStep = 3;
+  });
 
-  Future<void> _confirmAndSave() async {
-    if (_basePath == null) {
-      _showSnack('No storage path set.', isError: true);
-      return;
-    }
-    HapticFeedback.mediumImpact();
-    setState(() {
-      _isSaving = true;
-      _currentStep = 3;
-    });
+  int saved = 0;
+  int failed = 0;
 
-    int saved = 0;
-    int failed = 0;
+  for (final photo in _selectedPhotos) {
+    final subject =
+        photo['override'] as String? ?? photo['subject'] as String;
+    final path = photo['path'] as String;
 
-    for (final photo in _selectedPhotos) {
-      final subject =
-          photo['override'] as String? ?? photo['subject'] as String;
-      final path = photo['path'] as String;
+    // build the ocr text from whatever was extracted during classification
+    final ocrText = [
+      photo['ocrText'] as String? ?? '',
+    ].join(' ');
 
-      await StorageService.createSubjectFolder(_basePath!, subject);
+    await StorageService.createSubjectFolder(_basePath!, subject);
 
-      if (_saveOriginal) {
-        final result = await StorageService.savePhotoToSubject(
-          sourcePath: path,
-          basePath: _basePath!,
+    if (_saveOriginal) {
+      final result = await StorageService.savePhotoToSubject(
+        sourcePath: path,
+        basePath: _basePath!,
+        subject: subject,
+      );
+      if (result != null) {
+        await SearchService.indexPhoto(
+          photoPath: result,
           subject: subject,
+          ocrText: ocrText,
         );
-        if (result != null) saved++; else failed++;
+        saved++;
       } else {
-        final result = await StorageService.movePhotoToSubject(
-          sourcePath: path,
-          basePath: _basePath!,
-          newSubject: subject,
-        );
-        if (result != null) saved++; else failed++;
+        failed++;
       }
-    }
-
-    setState(() => _isSaving = false);
-
-    if (mounted) {
-      if (failed == 0) {
-        HapticFeedback.heavyImpact();
-        _messengerKey.currentState?.clearSnackBars();
-        _showSnack('$saved photo${saved > 1 ? 's' : ''} saved successfully!');
-        await Future.delayed(const Duration(milliseconds: 800));
-        Navigator.pushReplacementNamed(context, '/home');
+    } else {
+      final result = await StorageService.movePhotoToSubject(
+        sourcePath: path,
+        basePath: _basePath!,
+        newSubject: subject,
+      );
+      if (result != null) {
+        await SearchService.indexPhoto(
+          photoPath: result,
+          subject: subject,
+          ocrText: ocrText,
+        );
+        saved++;
       } else {
-        _showSnack('$saved saved, $failed failed.', isError: true);
+        failed++;
       }
     }
   }
 
+  setState(() => _isSaving = false);
+
+  if (mounted) {
+    if (failed == 0) {
+      HapticFeedback.heavyImpact();
+      _messengerKey.currentState?.clearSnackBars();
+      _showSnack('$saved photo${saved > 1 ? 's' : ''} saved successfully!');
+      await Future.delayed(const Duration(milliseconds: 800));
+      Navigator.pushReplacementNamed(context, '/home');
+    } else {
+      _showSnack('$saved saved, $failed failed.', isError: true);
+    }
+  }
+}
   //  Remove / Undo
 
   void _removePhoto(int index) {

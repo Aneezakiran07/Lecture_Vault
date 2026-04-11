@@ -7,6 +7,7 @@ import 'screens/home/home_screen.dart';
 import 'screens/upload/upload_screen.dart';
 import 'screens/folder_view/folder_view_screen.dart';
 import 'screens/settings/settings_screen.dart';
+import 'screens/search/search_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -39,6 +40,7 @@ class LectureVaultApp extends StatelessWidget {
         '/upload': (_) => const UploadScreen(),
         '/folder': (_) => const FolderViewScreen(),
         '/settings': (_) => const SettingsScreen(),
+        '/search': (_) => const SearchScreen(),
       },
     );
   }

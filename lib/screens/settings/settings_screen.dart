@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import '../../core/constants/colors.dart';
 import '../../services/storage_service.dart';
 import '../../services/permission_service.dart';
@@ -25,6 +26,7 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   bool _autoClassify = true;
   bool _showConfidence = true;
+  bool _saveOriginal = false; // false means move, true means keep a copy
   bool _isLoading = true;
 
   final TextEditingController _newSubjectController =
@@ -90,6 +92,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       _totalPhotos = total;
       _autoClassify = classSettings['autoClassify']!;
       _showConfidence = classSettings['showConfidence']!;
+      _saveOriginal = classSettings['saveOriginal'] ?? false;
       _isLoading = false;
     });
   }
@@ -605,12 +608,17 @@ class _SettingsScreenState extends State<SettingsScreen>
                 ),
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: const Center(
-                child: Text('LV',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 20)),
+              // show the actual app logo instead of LV text
+              child: Center(
+                child: SvgPicture.asset(
+                  'assets/logo.svg',
+                  width: 32,
+                  height: 32,
+                  colorFilter: const ColorFilter.mode(
+                    Colors.white,
+                    BlendMode.srcIn,
+                  ),
+                ),
               ),
             ),
             const SizedBox(width: 14),
@@ -956,7 +964,7 @@ class _SettingsScreenState extends State<SettingsScreen>
               await StorageService.saveClassificationSettings(
                 autoClassify: v,
                 showConfidence: _showConfidence,
-                saveOriginal: false,
+                saveOriginal: _saveOriginal,
               );
             },
             showDivider: true,
@@ -972,10 +980,62 @@ class _SettingsScreenState extends State<SettingsScreen>
               await StorageService.saveClassificationSettings(
                 autoClassify: _autoClassify,
                 showConfidence: v,
-                saveOriginal: false,
+                saveOriginal: _saveOriginal,
+              );
+            },
+            showDivider: true,
+          ),
+          _buildToggleTile(
+            icon: Icons.copy_rounded,
+            iconColor: const Color(0xFF9B59B6),
+            title: 'Keep original in gallery',
+            subtitle: _saveOriginal
+                // when ON we copy the photo so original stays in gallery
+                ? 'Photos are copied — originals stay in your gallery'
+                // when OFF we move the photo out of gallery into our folder
+                : 'Photos are moved into LectureVault folder',
+            value: _saveOriginal,
+            onChanged: (v) async {
+              setState(() => _saveOriginal = v);
+              await StorageService.saveClassificationSettings(
+                autoClassify: _autoClassify,
+                showConfidence: _showConfidence,
+                saveOriginal: v,
               );
             },
             showDivider: false,
+          ),
+          // info card explaining what this toggle actually does
+          Container(
+            margin: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF9B59B6).withOpacity(0.06),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                  color: const Color(0xFF9B59B6).withOpacity(0.2)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.info_outline_rounded,
+                    color: const Color(0xFF9B59B6).withOpacity(0.8),
+                    size: 14),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _saveOriginal
+                        ? 'ON: LectureVault makes a copy of each photo and saves it to your subject folder. Your gallery stays untouched.'
+                        : 'OFF: LectureVault moves the photo from your gallery into your subject folder. This saves storage space.',
+                    style: TextStyle(
+                      color: const Color(0xFF9B59B6).withOpacity(0.9),
+                      fontSize: 11,
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),

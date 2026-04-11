@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as p;
+import 'search_service.dart';
 
 class StorageService {
   static const _basePathKey = 'base_storage_path';
@@ -113,16 +114,16 @@ class StorageService {
   }
 
   // delete a single photo file from device
-  static Future<bool> deletePhoto(String path) async {
-    try {
-      final file = File(path);
-      if (await file.exists()) await file.delete();
-      return true;
-    } catch (e) {
-      return false;
-    }
+static Future<bool> deletePhoto(String path) async {
+  try {
+    final file = File(path);
+    if (await file.exists()) await file.delete();
+    await SearchService.removePhoto(path);
+    return true;
+  } catch (e) {
+    return false;
   }
-
+}
   // move photo to a different subject folder
   static Future<String?> movePhotoToSubject({
     required String sourcePath,
@@ -169,10 +170,11 @@ class StorageService {
   }
 
   // clear all saved prefs and reset app state
-  static Future<void> clearAll() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
-  }
+static Future<void> clearAll() async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.clear();
+  await SearchService.clearIndex();
+}
   static const _autoClassifyKey = 'auto_classify';
 static const _showConfidenceKey = 'show_confidence';
 static const _saveOriginalKey = 'save_original';
