@@ -85,7 +85,8 @@ class SearchService {
       final subject = data['subject'] as String;
       final text = data['text'] as String;
 
-      if (text.contains(queryLower)) {
+      final queryWords = queryLower.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+      if (queryWords.every((word) => text.contains(word))) { 
         results.add(SearchResult(
           photoPath: photoPath,
           subject: subject,

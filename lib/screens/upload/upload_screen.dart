@@ -382,6 +382,7 @@ class _UploadScreenState extends State<UploadScreen>
           _selectedPhotos[idx]['ocrText'] = ocr.keywords.isNotEmpty
               ? ocr.keywords.take(8).join(', ')
               : 'No text detected';
+          _selectedPhotos[idx]['ocrFull'] = ocr.cleanedText + ' ' + ocr.keywords.join(' ');
           _selectedPhotos[idx]['subject'] = result.subject;
           _selectedPhotos[idx]['confidence'] = result.confidence;
         }
@@ -602,10 +603,8 @@ Future<void> _confirmAndSave() async {
         photo['override'] as String? ?? photo['subject'] as String;
     final path = photo['path'] as String;
 
-    // build the ocr text from whatever was extracted during classification
-    final ocrText = [
-      photo['ocrText'] as String? ?? '',
-    ].join(' ');
+//has the complete cleaned text, ocrText is just the short display label
+  final ocrText = photo['ocrFull'] as String? ?? photo['ocrText'] as String? ?? '';
 
     await StorageService.createSubjectFolder(_basePath!, subject);
 

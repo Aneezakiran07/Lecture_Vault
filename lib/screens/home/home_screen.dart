@@ -794,8 +794,9 @@ Widget _buildHeader() {
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _navItem(Icons.home_rounded, 'Home', 0),
-              _navItem(Icons.upload_rounded, 'Upload', 1),
-              _navItem(Icons.settings_rounded, 'Settings', 2),
+              _navItem(Icons.search_rounded, 'Search', 1),
+              _navItem(Icons.upload_rounded, 'Upload', 2),
+              _navItem(Icons.settings_rounded, 'Settings', 3),
             ],
           ),
         ),
@@ -809,10 +810,13 @@ Widget _buildHeader() {
       onTap: () async {
         HapticFeedback.selectionClick();
         if (index == 1) {
+          await Navigator.pushNamed(context, '/search');
+        }
+        if (index == 2) {
           await Navigator.pushNamed(context, '/upload');
           _loadData();
         }
-        if (index == 2) {
+        if (index == 3) {
           await Navigator.pushNamed(context, '/settings');
           _loadData();
         }
