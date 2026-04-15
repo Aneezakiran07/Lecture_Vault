@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../core/constants/colors.dart';
+import '../constants/colors.dart';
 import '../../services/ocr_service.dart';
 import '../../services/classifier_service.dart';
 import '../../services/storage_service.dart';

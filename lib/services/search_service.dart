@@ -1,4 +1,8 @@
+import 'dart:collection';
 import 'dart:convert';
+import 'dart:ui';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // each search result carries the photo path, its subject folder, and the matched snippet
@@ -129,5 +133,24 @@ class SearchService {
     final prefix = start > 0 ? '...' : '';
     final suffix = end < text.length ? '...' : '';
     return '$prefix$snippet$suffix';
+  }
+
+  // fynctions for the Study features like flashcards and summary generator
+  // returns the full ocr text for one photo path, used by summary service
+  static Future<String?> getTextForPhoto(String photoPath) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_ocrIndexKey);
+    if (raw == null) return null;
+    final map = Map<String, dynamic>.from(jsonDecode(raw));
+    final entry = map[photoPath] as Map<String, dynamic>?;
+    return entry?['text'] as String?;
+  }
+
+  // returns the entire raw index map, used by summary service to collect text by subject
+  static Future<Map<String, dynamic>> getRawIndex() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_ocrIndexKey);
+    if (raw == null) return {};
+    return Map<String, dynamic>.from(jsonDecode(raw));
   }
 }

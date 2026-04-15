@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import '../../core/constants/colors.dart';
+import '../constants/colors.dart';
 import '../../services/storage_service.dart';
 import '../../services/permission_service.dart';
 

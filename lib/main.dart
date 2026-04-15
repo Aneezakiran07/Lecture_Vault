@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'core/constants/colors.dart';
+import 'screens/constants/colors.dart';
 import 'screens/splash/splash_screen.dart';
 import 'screens/onboarding/folder_setup_screen.dart';
 import 'screens/home/home_screen.dart';

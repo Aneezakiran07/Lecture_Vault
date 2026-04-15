@@ -1,9 +1,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../core/constants/colors.dart';
+import '../constants/colors.dart';
 import '../../services/storage_service.dart';
+import '../../services/summary_service.dart';
 import '../image_viewer_screen.dart';
+import '../../widgets/study_sheet.dart';
 
 class FolderViewScreen extends StatefulWidget {
   final String folderName;
@@ -190,6 +192,8 @@ class _FolderViewScreenState extends State<FolderViewScreen>
     for (final photo in toDelete) {
       await StorageService.deletePhoto(photo['path'] as String);
     }
+    // invalidate cached summary since photo count changed
+    await SummaryService.invalidateCache(_folderName);
     setState(() => _selectedIds.clear());
     await _loadPhotos();
   }
@@ -198,6 +202,7 @@ class _FolderViewScreenState extends State<FolderViewScreen>
     Navigator.pop(context);
     HapticFeedback.mediumImpact();
     await StorageService.deletePhoto(path);
+    await SummaryService.invalidateCache(_folderName);
     await _loadPhotos();
   }
 
@@ -206,7 +211,41 @@ class _FolderViewScreenState extends State<FolderViewScreen>
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (_) => _buildBottomSheet(photo),
+      builder: (_) => _buildPhotoOptionsSheet(photo),
+    );
+  }
+
+  // opens the study bottom sheet for the whole folder
+  void _showFolderStudySheet() {
+    HapticFeedback.lightImpact();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => StudySheet(
+        subject: _folderName,
+        photoCount: _photos.length,
+        photoPaths: null,
+      ),
+    );
+  }
+
+  // opens the study bottom sheet for selected photos only
+  void _showSelectionStudySheet() {
+    HapticFeedback.lightImpact();
+    final paths = _photos
+        .where((p) => _selectedIds.contains(p['id']))
+        .map((p) => p['path'] as String)
+        .toList();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => StudySheet(
+        subject: _folderName,
+        photoCount: null,
+        photoPaths: paths,
+      ),
     );
   }
 
@@ -225,7 +264,6 @@ class _FolderViewScreenState extends State<FolderViewScreen>
             return RadioListTile<String>(
               value: s,
               groupValue: _selectedSort,
-              // active radio uses solid brand teal
               activeColor: const Color(0xFF035955),
               title: Text(s),
               onChanged: (val) {
@@ -367,6 +405,7 @@ class _FolderViewScreenState extends State<FolderViewScreen>
     final updated =
         subjects.where((s) => s != _folderName).toList();
     await StorageService.saveSubjects(updated);
+    await SummaryService.invalidateCache(_folderName);
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -388,11 +427,11 @@ class _FolderViewScreenState extends State<FolderViewScreen>
       if (await dir.exists()) {
         await dir.delete(recursive: true);
       }
-
       final subjects = await StorageService.getSubjects();
       final updated =
           subjects.where((s) => s != _folderName).toList();
       await StorageService.saveSubjects(updated);
+      await SummaryService.invalidateCache(_folderName);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -458,7 +497,7 @@ class _FolderViewScreenState extends State<FolderViewScreen>
                   Padding(
                     padding: const EdgeInsets.all(20),
                     child: Text(
-                      'No other folders available. Add subjects in Settings first.',
+                      'No other folders available.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                           color: Colors.grey.shade500, fontSize: 13),
@@ -503,6 +542,10 @@ class _FolderViewScreenState extends State<FolderViewScreen>
         failed++;
       }
     }
+
+    // invalidate cache for both folders since counts changed
+    await SummaryService.invalidateCache(_folderName);
+    await SummaryService.invalidateCache(targetSubject);
 
     setState(() => _selectedIds.clear());
     await _loadPhotos();
@@ -688,7 +731,7 @@ class _FolderViewScreenState extends State<FolderViewScreen>
                                 fontWeight: FontWeight.bold)),
                         const SizedBox(height: 4),
                         Text(
-                          '${_photos.length} photo${_photos.length != 1 ? 's' : ''} - ${_formatSize(_totalSizeBytes)}',
+                          '${_photos.length} photo${_photos.length != 1 ? 's' : ''} · ${_formatSize(_totalSizeBytes)}',
                           style: const TextStyle(
                               color: Colors.white70, fontSize: 12),
                         ),
@@ -706,8 +749,43 @@ class _FolderViewScreenState extends State<FolderViewScreen>
                   _headerStatChip(Icons.storage_rounded,
                       _formatSize(_totalSizeBytes)),
                   const SizedBox(width: 8),
-                  _headerStatChip(
-                      Icons.folder_rounded, displayName),
+                  // study button sits in the stat chips row
+                  GestureDetector(
+                    onTap: _photos.isEmpty ? null : _showFolderStudySheet,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: _photos.isEmpty
+                            ? Colors.white.withOpacity(0.08)
+                            : Colors.white.withOpacity(0.22),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: Colors.white.withOpacity(0.4),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.auto_awesome_rounded,
+                              color: _photos.isEmpty
+                                  ? Colors.white38
+                                  : Colors.white,
+                              size: 12),
+                          const SizedBox(width: 5),
+                          Text(
+                            'Study',
+                            style: TextStyle(
+                                color: _photos.isEmpty
+                                    ? Colors.white38
+                                    : Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ],
@@ -762,7 +840,6 @@ class _FolderViewScreenState extends State<FolderViewScreen>
                       padding: const EdgeInsets.symmetric(
                           horizontal: 16, vertical: 8),
                       decoration: BoxDecoration(
-                        // selected pill uses full solid teal, always vivid
                         color: isSelected
                             ? const Color(0xFF035955)
                             : Colors.white,
@@ -785,7 +862,6 @@ class _FolderViewScreenState extends State<FolderViewScreen>
                           style: TextStyle(
                               color: isSelected
                                   ? Colors.white
-                                  // unselected text is medium gray, not dim
                                   : const Color(0xFF555555),
                               fontSize: 12,
                               fontWeight: isSelected
@@ -798,7 +874,6 @@ class _FolderViewScreenState extends State<FolderViewScreen>
             ),
           ),
           const SizedBox(width: 8),
-          // sort button uses solid brand color so it is always visible
           GestureDetector(
             onTap: _showSortDialog,
             child: Container(
@@ -1046,8 +1121,7 @@ class _FolderViewScreenState extends State<FolderViewScreen>
                         color: Color(0xFF8A9BA8), fontSize: 11)),
                 const SizedBox(width: 8),
                 GestureDetector(
-                  onTap: () =>
-                      _showPhotoOptions(context, photo),
+                  onTap: () => _showPhotoOptions(context, photo),
                   child: const Icon(Icons.more_vert_rounded,
                       color: Color(0xFF8A9BA8), size: 20),
                 ),
@@ -1089,7 +1163,6 @@ class _FolderViewScreenState extends State<FolderViewScreen>
                   color: Colors.grey.shade500, fontSize: 13),
             ),
             const SizedBox(height: 24),
-            // vivid solid upload button, never dim
             ElevatedButton.icon(
               onPressed: () =>
                   Navigator.pushNamed(context, '/upload')
@@ -1119,10 +1192,7 @@ class _FolderViewScreenState extends State<FolderViewScreen>
   Widget _buildSelectionBar() {
     return Container(
       padding: EdgeInsets.fromLTRB(
-          20,
-          12,
-          20,
-          MediaQuery.of(context).padding.bottom + 12),
+          16, 12, 16, MediaQuery.of(context).padding.bottom + 12),
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
@@ -1149,20 +1219,44 @@ class _FolderViewScreenState extends State<FolderViewScreen>
                   color: Colors.grey, size: 20),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Text('${_selectedIds.length} selected',
                 style: const TextStyle(
                     color: AppColors.bodyText,
                     fontWeight: FontWeight.bold,
-                    fontSize: 15)),
+                    fontSize: 14)),
           ),
-          // move button uses solid teal
+          // study button for selected photos
+          GestureDetector(
+            onTap: _showSelectionStudySheet,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF89B0AE),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.auto_awesome_rounded,
+                      color: Colors.white, size: 15),
+                  SizedBox(width: 5),
+                  Text('Study',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13)),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
           GestureDetector(
             onTap: _showMoveSelectedDialog,
             child: Container(
               padding: const EdgeInsets.symmetric(
-                  horizontal: 16, vertical: 10),
+                  horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
                 color: const Color(0xFF035955),
                 borderRadius: BorderRadius.circular(10),
@@ -1170,8 +1264,8 @@ class _FolderViewScreenState extends State<FolderViewScreen>
               child: const Row(
                 children: [
                   Icon(Icons.drive_file_move_rounded,
-                      color: Colors.white, size: 16),
-                  SizedBox(width: 6),
+                      color: Colors.white, size: 15),
+                  SizedBox(width: 5),
                   Text('Move',
                       style: TextStyle(
                           color: Colors.white,
@@ -1182,12 +1276,11 @@ class _FolderViewScreenState extends State<FolderViewScreen>
             ),
           ),
           const SizedBox(width: 8),
-          // delete button uses solid red
           GestureDetector(
             onTap: _deleteSelected,
             child: Container(
               padding: const EdgeInsets.symmetric(
-                  horizontal: 16, vertical: 10),
+                  horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
                 color: const Color(0xFFE07A5F),
                 borderRadius: BorderRadius.circular(10),
@@ -1195,8 +1288,8 @@ class _FolderViewScreenState extends State<FolderViewScreen>
               child: const Row(
                 children: [
                   Icon(Icons.delete_outline_rounded,
-                      color: Colors.white, size: 16),
-                  SizedBox(width: 6),
+                      color: Colors.white, size: 15),
+                  SizedBox(width: 5),
                   Text('Delete',
                       style: TextStyle(
                           color: Colors.white,
@@ -1211,7 +1304,7 @@ class _FolderViewScreenState extends State<FolderViewScreen>
     );
   }
 
-  Widget _buildBottomSheet(Map<String, dynamic> photo) {
+  Widget _buildPhotoOptionsSheet(Map<String, dynamic> photo) {
     return Container(
       margin: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1284,8 +1377,7 @@ class _FolderViewScreenState extends State<FolderViewScreen>
           _sheetTile(Icons.drive_file_move_rounded, 'Move to folder',
               const Color(0xFF89B0AE), () {
             Navigator.pop(context);
-            setState(
-                () => _selectedIds.add(photo['id'] as int));
+            setState(() => _selectedIds.add(photo['id'] as int));
             _showMoveSelectedDialog();
           }),
           _sheetTile(Icons.share_rounded, 'Share',
@@ -1295,8 +1387,7 @@ class _FolderViewScreenState extends State<FolderViewScreen>
               Icons.delete_outline_rounded,
               'Delete',
               const Color(0xFFE07A5F),
-              () =>
-                  _deleteSinglePhoto(photo['path'] as String)),
+              () => _deleteSinglePhoto(photo['path'] as String)),
           const SizedBox(height: 16),
         ],
       ),
@@ -1322,4 +1413,5 @@ class _FolderViewScreenState extends State<FolderViewScreen>
       onTap: onTap,
     );
   }
+
 }
