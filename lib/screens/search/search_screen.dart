@@ -321,7 +321,7 @@ class _SearchScreenState extends State<SearchScreen>
                         color: Color(0xFFE07A5F), size: 16),
                     SizedBox(width: 8),
                     Text(
-                      'No photos indexed yet — upload some first',
+                      'No photos indexed yet, upload some first',
                       style: TextStyle(
                           color: Color(0xFFE07A5F),
                           fontSize: 12,

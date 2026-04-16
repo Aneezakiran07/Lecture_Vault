@@ -107,7 +107,7 @@ class StorageService {
               f.path.endsWith('.jpeg') ||
               f.path.endsWith('.png'))
           .toList()
-        ..sort((a, b) => b.path.compareTo(a.path));
+        ..sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
     } catch (e) {
       return [];
     }

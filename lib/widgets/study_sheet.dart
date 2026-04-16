@@ -113,8 +113,8 @@ class _StudySheetState extends State<StudySheet>
                     children: [
                       Text(
                         widget.photoPaths != null
-                            ? 'Study — ${widget.photoPaths!.length} selected'
-                            : 'Study — ${widget.subject}',
+                            ? 'Study, ${widget.photoPaths!.length} selected'
+                            : 'Study, ${widget.subject}',
                         style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 15,
@@ -168,8 +168,11 @@ class _StudySheetState extends State<StudySheet>
                   Icon(Icons.info_outline_rounded,
                       color: Colors.grey.shade400, size: 40),
                   const SizedBox(height: 12),
-                  Text(
-                   'These photos haven\'t been indexed yet.\nOnly photos uploaded through the app can be studied.',
+Text(
+                    _statusMsg.contains('error') || _statusMsg.contains('Error')
+                        ? 'Something went wrong: $_statusMsg\n\nCheck your internet connection and try again.'
+                        : 'No notes found for this folder.\nUpload photos through the app first.',
+
                     textAlign: TextAlign.center,
                     style: TextStyle(
                         color: Colors.grey.shade500, fontSize: 13),

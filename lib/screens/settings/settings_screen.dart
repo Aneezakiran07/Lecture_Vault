@@ -991,7 +991,7 @@ class _SettingsScreenState extends State<SettingsScreen>
             title: 'Keep original in gallery',
             subtitle: _saveOriginal
                 // when ON we copy the photo so original stays in gallery
-                ? 'Photos are copied — originals stay in your gallery'
+                ? 'Photos are copied, originals stay in your gallery'
                 // when OFF we move the photo out of gallery into our folder
                 : 'Photos are moved into LectureVault folder',
             value: _saveOriginal,

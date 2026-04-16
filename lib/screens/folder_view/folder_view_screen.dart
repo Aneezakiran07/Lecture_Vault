@@ -6,6 +6,7 @@ import '../../services/storage_service.dart';
 import '../../services/summary_service.dart';
 import '../image_viewer_screen.dart';
 import '../../widgets/study_sheet.dart';
+import '../../services/search_service.dart';
 
 class FolderViewScreen extends StatefulWidget {
   final String folderName;
@@ -185,7 +186,34 @@ class _FolderViewScreenState extends State<FolderViewScreen>
     );
   }
 
-  Future<void> _deleteSelected() async {
+Future<void> _deleteSelected() async {
+    final count = _selectedIds.length;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Delete photos?',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        content: Text('$count photo${count > 1 ? 's' : ''} will be permanently deleted.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('Cancel', style: TextStyle(color: Colors.grey.shade600)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE07A5F),
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('Delete', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     HapticFeedback.mediumImpact();
     final toDelete =
         _photos.where((p) => _selectedIds.contains(p['id'])).toList();
@@ -400,12 +428,13 @@ class _FolderViewScreenState extends State<FolderViewScreen>
     );
   }
 
-  Future<void> _deleteFolderFromAppOnly() async {
+Future<void> _deleteFolderFromAppOnly() async {
     final subjects = await StorageService.getSubjects();
     final updated =
         subjects.where((s) => s != _folderName).toList();
     await StorageService.saveSubjects(updated);
     await SummaryService.invalidateCache(_folderName);
+    await SearchService.removeSubject(_folderName);
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(

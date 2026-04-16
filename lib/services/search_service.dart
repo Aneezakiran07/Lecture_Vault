@@ -119,9 +119,13 @@ class SearchService {
     await prefs.remove(_ocrIndexKey);
   }
 
-  // pulls a short window of text around where the query word appears
-  static String _extractSnippet(String text, String query) {
-    final index = text.indexOf(query);
+static String _extractSnippet(String text, String query) {
+    final words = query.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    int index = -1;
+    for (final word in words) {
+      final i = text.indexOf(word);
+      if (i != -1) { index = i; break; }
+    }
     if (index == -1) return text.substring(0, text.length.clamp(0, 80));
 
     // take 40 characters before and after the match for context

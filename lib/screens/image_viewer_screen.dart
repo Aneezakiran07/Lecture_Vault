@@ -2,6 +2,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
+import 'dart:typed_data';
+import 'package:image_picker/image_picker.dart';
 
 class ImageViewerScreen extends StatefulWidget {
   final List<String> imagePaths;
@@ -53,7 +55,36 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
 
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
+Widget _buildImage(String path) {
+  const errorWidget = Center(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.broken_image_rounded, color: Colors.white38, size: 64),
+        SizedBox(height: 12),
+        Text('Image not found', style: TextStyle(color: Colors.white38)),
+      ],
+    ),
+  );
 
+  if (path.startsWith('content://')) {
+    return FutureBuilder<Uint8List>(
+      future: XFile(path).readAsBytes(),
+      builder: (context, snap) {
+        if (snap.hasData) {
+          return Image.memory(snap.data!, fit: BoxFit.contain,
+              filterQuality: FilterQuality.high);
+        }
+        if (snap.hasError) return errorWidget;
+        return const Center(
+          child: CircularProgressIndicator(color: Colors.white38),
+        );
+      },
+    );
+  }
+  return Image.file(File(path), fit: BoxFit.contain,
+      filterQuality: FilterQuality.high, errorBuilder: (_, __, ___) => errorWidget);
+}
   @override
   void dispose() {
     _pageController.dispose();
@@ -151,25 +182,8 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
                         setState(() => _isZoomed = false);
                       }
                     },
-                    child: Image.file(
-                      File(widget.imagePaths[index]),
-                      fit: BoxFit.contain,
-                      filterQuality: FilterQuality.high,
-                      errorBuilder: (_, __, ___) => const Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.broken_image_rounded,
-                                color: Colors.white38, size: 64),
-                            SizedBox(height: 12),
-                            Text('Image not found',
-                                style:
-                                    TextStyle(color: Colors.white38)),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
+                    child: _buildImage(widget.imagePaths[index]),)
+                  
                 ),
               );
             },

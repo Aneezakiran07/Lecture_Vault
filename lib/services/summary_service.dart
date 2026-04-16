@@ -48,7 +48,7 @@ class SummaryService {
   static GenerativeModel? _model;
   static GenerativeModel get _gemini {
     _model ??= GenerativeModel(
-      model: 'gemini-2.0-flash-lite',
+      model: 'gemini-3.1-flash-lite-preview',
       apiKey: _apiKey,
       generationConfig: GenerationConfig(
         temperature: 0.2,
@@ -77,14 +77,17 @@ class SummaryService {
     onStatus?.call('Reading your notes...');
     final allText = await _collectTextForSubject(subject);
     if (allText.trim().isEmpty) return null;
+    
 
     onStatus?.call('Generating study material...');
-    final result = await _callGemini(allText, subject);
+    final result = await _callGemini(allText, subject, onError: (e) {
+      onStatus?.call('Gemini error: $e');
+    });
     if (result != null) await _saveCache(cacheKey, result);
     return result;
   }
 
-  // generates study material for a specific selected set of photos
+// generates study material for a specific selected set of photos
   // not cached since the selection is arbitrary each time
   static Future<StudyMaterial?> getForSelection({
     required List<String> photoPaths,
@@ -99,11 +102,20 @@ class SummaryService {
         buffer.writeln(text);
       }
     }
+    
     final text = buffer.toString().trim();
     if (text.isEmpty) return null;
 
     onStatus?.call('Generating study material...');
-    return await _callGemini(text, subject);
+    
+    // Updated call with error handling
+    return await _callGemini(
+      text, 
+      subject, 
+      onError: (e) {
+        onStatus?.call('Gemini error: $e');
+      },
+    );
   }
 
   // clears all cached summaries for a subject
@@ -131,8 +143,8 @@ class SummaryService {
     return buffer.toString();
   }
 
-  static Future<StudyMaterial?> _callGemini(
-      String text, String subject) async {
+ static Future<StudyMaterial?> _callGemini(
+    String text, String subject, {void Function(String)? onError}) async {
     final trimmed =
         text.length > 6000 ? text.substring(0, 6000) : text;
 
@@ -158,14 +170,15 @@ NOTES:
 $trimmed
 """''';
 
-    try {
-      final response =
-          await _gemini.generateContent([Content.text(prompt)]);
-      return _parse(response.text ?? '');
-    } catch (_) {
-      return null;
+  try {
+        final response =
+            await _gemini.generateContent([Content.text(prompt)]);
+        return _parse(response.text ?? '');
+      } catch (e) {
+        onError?.call(e.toString());
+        return null;
+      }
     }
-  }
 
   static StudyMaterial? _parse(String raw) {
     try {

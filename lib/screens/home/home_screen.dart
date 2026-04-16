@@ -14,7 +14,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
 
-  final int _selectedNavIndex = 0;
+  int _selectedNavIndex = 0;
 
   List<String> _subjects = [];
   String? _basePath;
@@ -809,6 +809,7 @@ Widget _buildHeader() {
     return GestureDetector(
       onTap: () async {
         HapticFeedback.selectionClick();
+        setState(() => _selectedNavIndex = index);
         if (index == 1) {
           await Navigator.pushNamed(context, '/search');
         }
@@ -820,6 +821,7 @@ Widget _buildHeader() {
           await Navigator.pushNamed(context, '/settings');
           _loadData();
         }
+        setState(() => _selectedNavIndex = 0);
       },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),

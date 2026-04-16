@@ -23,7 +23,7 @@ class UploadScreen extends StatefulWidget {
 
 class _UploadScreenState extends State<UploadScreen>
     with TickerProviderStateMixin {
-  // Scoped messenger — snackbars shown here NEVER leak to other screens
+  // Scoped messenger, snackbars shown here NEVER leak to other screens
   final _messengerKey = GlobalKey<ScaffoldMessengerState>();
 
   bool _autoClassify = true;
@@ -48,7 +48,7 @@ class _UploadScreenState extends State<UploadScreen>
   late AnimationController _headerAnimController;
   late Animation<double> _headerFadeAnim;
 
-  // NOTE: _picker field removed — fresh instance created per pick call
+  // NOTE: _picker field removed, fresh instance created per pick call
   final List<Map<String, dynamic>> _selectedPhotos = [];
 
   List<String> _allSubjects = [];
@@ -145,7 +145,7 @@ class _UploadScreenState extends State<UploadScreen>
   /// Pre-reads bytes for content:// URIs while the URI permission is still
   /// live (right after the picker returns). Stores them in the photo map so
   /// every subsequent rebuild is instant.
-  Future<void> _cachePhotoBytes(int startIdx) async {
+Future<void> _cachePhotoBytes(int startIdx) async {
     for (int i = startIdx; i < _selectedPhotos.length; i++) {
       final path = _selectedPhotos[i]['path'] as String;
       if (path.startsWith('content://')) {
@@ -154,46 +154,35 @@ class _UploadScreenState extends State<UploadScreen>
           if (mounted) {
             setState(() => _selectedPhotos[i]['bytes'] = bytes);
           }
-        } catch (_) {
-          // FutureBuilder fallback inside _buildPhotoImage handles this
+        } catch (e) {
+          _log('cachePhotoBytes failed for $path: $e');
         }
       }
     }
   }
-
-  // classification
-
-  Future<void> _runBatchClassification(List<OcrResult> batchOcrResults) async {
-    _log('Starting batch classification for ${batchOcrResults.length} photos...');
-    setState(() {
-      for (var photo in _selectedPhotos) {
-        photo['isProcessing'] = true;
-      }
-    });
-    final subjects = _allSubjects.where((s) => s != 'Unclassified').toList();
-    final results = await ClassifierService.classifyAllFromOcr(
-      batchOcrResults,
-      subjects,
-      onLog: _log,
-      onProgress: (completed, total) {
-        _log('Classification progress: $completed/$total');
-      },
+// resolves a content URI to a real file path OCR and exif libs can read
+// writes bytes to a temp file and returns its path
+// if the path is already a real file path returns it unchanged
+Future<String> _resolveToFilePath(String path) async {
+  if (!path.startsWith('content://')) return path;
+try {
+    final bytes = await XFile(path).readAsBytes();
+final tmp = Directory.systemTemp;
+    final file = File(
+      '${tmp.path}/lv_${DateTime.now().millisecondsSinceEpoch}_${path.hashCode}.jpg',
     );
-    setState(() {
-      for (int i = 0; i < results.length; i++) {
-        if (i < _selectedPhotos.length) {
-          _selectedPhotos[i]['subject'] = results[i].subject;
-          _selectedPhotos[i]['confidence'] = results[i].confidence;
-          _selectedPhotos[i]['isProcessing'] = false;
-        }
-      }
-    });
-    _log('Batch classification complete! ${results.length} results applied.');
+    await file.writeAsBytes(bytes);
+    return file.path;
+} catch (e) {
+    _log('resolveToFilePath failed: $e');
+    return path;
   }
-
+}
+  
   void _openViewer(int index) {
     HapticFeedback.lightImpact();
     final paths = _selectedPhotos.map((p) => p['path'] as String).toList();
+    
     if (paths.isEmpty || index >= paths.length) return;
 
     final path = paths[index];
@@ -240,12 +229,17 @@ class _UploadScreenState extends State<UploadScreen>
     _log('pickMultiImage returned ${picked.length} photo(s)');
 
     // Fallback: pickMultiImage returns empty on second call on some Android devices
-    if (picked.isEmpty) {
-      _log('pickMultiImage empty — trying pickImage fallback');
+ if (picked.isEmpty) {
+      _log('pickMultiImage empty, trying pickImage fallback');
       final single = await picker.pickImage(
         source: ImageSource.gallery,
         imageQuality: 90,
       );
+      if (single == null) {
+        _log('single image fallback also returned null');
+        _showSnack('No photo selected', isError: false);
+        return;
+      }
       if (single != null) {
         picked = [single];
         _log('pickImage fallback succeeded');
@@ -258,16 +252,18 @@ class _UploadScreenState extends State<UploadScreen>
       final removed = picked.length - remaining;
       picked = picked.take(remaining).toList();
       _showSnack(
-        'Only $remaining slot${remaining == 1 ? '' : 's'} left — '
+        'Only $remaining slot${remaining == 1 ? '' : 's'} left,  '
         '$removed photo${removed == 1 ? '' : 's'} above the $_maxPhotos limit removed',
         isError: true,
       );
     }
 
-    final paths = picked.map((x) => x.path).toList();
+// resolve all content URIs to real file paths before anything else touches them
+    final paths = await Future.wait(picked.map((x) => _resolveToFilePath(x.path)));
     final subjects = _allSubjects.where((s) => s != 'Unclassified').toList();
     final startIdx = _selectedPhotos.length;
 
+if (!mounted) return;
     // Single atomic setState — adds all photos + sets step in one rebuild
     setState(() {
       _currentStep = 1;
@@ -285,7 +281,7 @@ class _UploadScreenState extends State<UploadScreen>
     });
 
     // Cache bytes immediately while content:// URI permission is still live
-    _cachePhotoBytes(startIdx);
+    await _cachePhotoBytes(startIdx);
 
     if (!_autoClassify) {
       setState(() {
@@ -297,13 +293,13 @@ class _UploadScreenState extends State<UploadScreen>
         }
         _currentStep = 2;
       });
-      _setStatus('Auto-classify is off — set subjects manually',
+      _setStatus('Auto-classify is off, set subjects manually',
           icon: Icons.info_outline_rounded);
       return;
     }
 
     _setStatus(
-      'Step 1 of 2 — scanning ${paths.length} photo${paths.length > 1 ? 's' : ''} for text...',
+      'Step 1 of 2, scanning ${paths.length} photo${paths.length > 1 ? 's' : ''} for text...',
       icon: Icons.document_scanner_rounded,
     );
 
@@ -314,10 +310,14 @@ class _UploadScreenState extends State<UploadScreen>
         eagerError: false,
       );
       _log('OCR complete for ${ocrResults.length} images');
-    } catch (e) {
-      _log('OCR failed: $e');
-      _setStatus('Scanning failed — please try again',
-          icon: Icons.error_outline_rounded, isError: true);
+} catch (e) {
+      _log('Classification failed: $e');
+      if (!mounted) return;
+      _setStatus(
+        'AI classification failed, check internet connection, or set subjects manually using ↓',
+        icon: Icons.warning_amber_rounded,
+        isError: true,
+      );
       setState(() {
         for (int i = startIdx; i < _selectedPhotos.length; i++) {
           _selectedPhotos[i]['subject'] = 'Unclassified';
@@ -327,15 +327,15 @@ class _UploadScreenState extends State<UploadScreen>
         }
       });
       return;
-    }
+    
+}
 
+    if (!mounted) return;
     setState(() => _currentStep = 2);
-
     _setStatus(
-      'Step 2 of 2 — classifying ${ocrResults.length} photo${ocrResults.length > 1 ? 's' : ''} with AI...',
+      'Step 2 of 2, classifying ${ocrResults.length} photo${ocrResults.length > 1 ? 's' : ''} with AI...',
       icon: Icons.auto_awesome_rounded,
     );
-
     List<({String subject, double confidence})> results;
     try {
       results = await ClassifierService.classifyAllFromOcr(
@@ -344,7 +344,7 @@ class _UploadScreenState extends State<UploadScreen>
         onLog: _log,
         onProgress: (completed, total) {
           _setStatus(
-            'Step 2 of 2 — AI classified $completed of $total photos...',
+            'Step 2 of 2, AI classified $completed of $total photos...',
             icon: Icons.auto_awesome_rounded,
           );
         },
@@ -352,7 +352,7 @@ class _UploadScreenState extends State<UploadScreen>
     } catch (e) {
       _log('Classification failed: $e');
       _setStatus(
-        'Classification failed — set subjects manually using ↓',
+        'AI classification failed, check internet connection, or set subjects manually using ↓',
         icon: Icons.warning_amber_rounded,
         isError: true,
       );
@@ -366,6 +366,7 @@ class _UploadScreenState extends State<UploadScreen>
       return;
     }
 
+    if (!mounted) return;
     setState(() {
       for (int i = 0; i < paths.length; i++) {
         final idx = startIdx + i;
@@ -396,7 +397,7 @@ class _UploadScreenState extends State<UploadScreen>
     final noInternet = results.any((r) => r.subject == 'No Internet');
 
     if (noInternet) {
-      _setStatus('No internet — connect and re-upload to classify',
+      _setStatus('No internet, connect and re-upload to classify',
           icon: Icons.wifi_off_rounded, isError: true);
     } else if (unclassified > 0) {
       _setStatus(
@@ -406,7 +407,7 @@ class _UploadScreenState extends State<UploadScreen>
       );
     } else {
       _setStatus(
-        'All ${results.length} photo${results.length > 1 ? 's' : ''} classified — tap Confirm & Save!',
+        'All ${results.length} photo${results.length > 1 ? 's' : ''} classified, tap Confirm & Save!',
         icon: Icons.check_circle_rounded,
       );
     }
@@ -425,12 +426,12 @@ class _UploadScreenState extends State<UploadScreen>
 
     // Fresh picker instance
     final picker = ImagePicker();
-    final xFile = await picker.pickImage(
-        source: ImageSource.camera, imageQuality: 90);
+    final xFile = await picker.pickImage(source: ImageSource.camera, imageQuality: 90);
     if (xFile == null) return;
-
+final resolvedCameraPath = await _resolveToFilePath(xFile.path);
+    if (!mounted) return;
     final entry = {
-      'path': xFile.path,
+      'path': resolvedCameraPath,
       'bytes': null,
       'ocrText': '',
       'subject': '',
@@ -445,7 +446,7 @@ class _UploadScreenState extends State<UploadScreen>
     });
 
     // Cache bytes for this single camera photo too
-    _cachePhotoBytes(_selectedPhotos.length - 1);
+    await _cachePhotoBytes(_selectedPhotos.length - 1);
 
     if (!_autoClassify) {
       setState(() {
@@ -458,7 +459,7 @@ class _UploadScreenState extends State<UploadScreen>
         }
         _currentStep = 2;
       });
-      _setStatus('Auto-classify is off — set subject manually',
+      _setStatus('Auto-classify is off, set subject manually',
           icon: Icons.info_outline_rounded);
       return;
     }
@@ -466,7 +467,7 @@ class _UploadScreenState extends State<UploadScreen>
     _setStatus('Scanning photo for text...', icon: Icons.document_scanner_rounded);
 
     try {
-      final ocrResult = await OcrService.extractRich(xFile.path);
+      final ocrResult = await OcrService.extractRich(resolvedCameraPath);
       _log('OCR done: ${ocrResult.keywords.length} keywords');
 
       _setStatus('Classifying with AI...', icon: Icons.auto_awesome_rounded);
@@ -478,9 +479,11 @@ class _UploadScreenState extends State<UploadScreen>
       setState(() {
         final idx = _selectedPhotos.indexOf(entry);
         if (idx != -1) {
-          _selectedPhotos[idx]['ocrText'] = ocrResult.keywords.isNotEmpty
+      _selectedPhotos[idx]['ocrText'] = ocrResult.keywords.isNotEmpty
               ? ocrResult.keywords.take(8).join(', ')
               : 'No text detected';
+          _selectedPhotos[idx]['ocrFull'] =
+              '${ocrResult.cleanedText} ${ocrResult.keywords.join(' ')}';
           _selectedPhotos[idx]['subject'] = match.subject;
           _selectedPhotos[idx]['confidence'] = match.confidence;
           _selectedPhotos[idx]['isProcessing'] = false;
@@ -488,10 +491,11 @@ class _UploadScreenState extends State<UploadScreen>
         _currentStep = 3;
       });
 
-      _setStatus('Photo classified as ${match.subject} — ready to save!',
+      _setStatus('Photo classified as ${match.subject} ready to save!',
           icon: Icons.check_circle_rounded);
-    } catch (e) {
+} catch (e) {
       _log('Camera classify error: $e');
+      if (!mounted) return;
       setState(() {
         final idx = _selectedPhotos.indexOf(entry);
         if (idx != -1) {
@@ -502,7 +506,7 @@ class _UploadScreenState extends State<UploadScreen>
         }
         _currentStep = 3;
       });
-      _setStatus('Processing failed — set subject manually',
+      _setStatus('Processing failed, set subject manually',
           icon: Icons.error_outline_rounded, isError: true);
     }
   }
@@ -583,69 +587,101 @@ class _UploadScreenState extends State<UploadScreen>
     );
   }
 
-  // SAVE
-Future<void> _confirmAndSave() async {
-  if (_basePath == null) {
-    _showSnack('No storage path set.', isError: true);
-    return;
-  }
-  HapticFeedback.mediumImpact();
-  setState(() {
-    _isSaving = true;
-    _currentStep = 3;
-  });
+ // SAVE
+  Future<void> _confirmAndSave() async {
+    if (_basePath == null) {
+      _showSnack('No storage path set.', isError: true);
+      return;
+    }
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _isSaving = true;
+      _currentStep = 3;
+    });
 
-  int saved = 0;
-  int failed = 0;
+    int saved = 0;
+    int failed = 0;
 
-  for (final photo in _selectedPhotos) {
+for (final photo in _selectedPhotos) {
     final subject =
         photo['override'] as String? ?? photo['subject'] as String;
     final path = photo['path'] as String;
 
-//has the complete cleaned text, ocrText is just the short display label
-  final ocrText = photo['ocrFull'] as String? ?? photo['ocrText'] as String? ?? '';
-
-    await StorageService.createSubjectFolder(_basePath!, subject);
-
-    if (_saveOriginal) {
-      final result = await StorageService.savePhotoToSubject(
-        sourcePath: path,
-        basePath: _basePath!,
-        subject: subject,
-      );
-      if (result != null) {
-        await SearchService.indexPhoto(
-          photoPath: result,
-          subject: subject,
-          ocrText: ocrText,
-        );
-        saved++;
-      } else {
-        failed++;
-      }
-    } else {
-      final result = await StorageService.movePhotoToSubject(
-        sourcePath: path,
-        basePath: _basePath!,
-        newSubject: subject,
-      );
-      if (result != null) {
-        await SearchService.indexPhoto(
-          photoPath: result,
-          subject: subject,
-          ocrText: ocrText,
-        );
-        saved++;
-      } else {
-        failed++;
-      }
+    //has the complete cleaned text, ocrText is just the short display label
+    String ocrText = photo['ocrFull'] as String? ?? photo['ocrText'] as String? ?? '';
+    
+    // PREVENT UI STRINGS FROM POISONING SEARCH INDEX
+    if (ocrText.contains('Auto-classify disabled') || 
+        ocrText.contains('Scan failed') || 
+        ocrText.contains('Processing failed') || 
+        ocrText.contains('No text detected') || 
+        ocrText.contains('Connect to internet')) {
+      ocrText = '';
     }
-  }
 
-  setState(() => _isSaving = false);
+    // Wrapped the actual saving/indexing in a try-catch block
+      try {
+        await StorageService.createSubjectFolder(_basePath!, subject);
 
-  if (mounted) {
+        if (_saveOriginal) {
+          final result = await StorageService.savePhotoToSubject(
+            sourcePath: path,
+            basePath: _basePath!,
+            subject: subject,
+          );
+          if (result != null) {
+            await SearchService.indexPhoto(
+              photoPath: result,
+              subject: subject,
+              ocrText: ocrText,
+            );
+            saved++;
+            photo['saved'] = true;
+          } else {
+            failed++;
+            photo['saved'] = false;
+          }
+        } else {
+          final result = await StorageService.movePhotoToSubject(
+            sourcePath: path,
+            basePath: _basePath!,
+            newSubject: subject,
+          );
+          if (result != null) {
+            await SearchService.indexPhoto(
+              photoPath: result,
+              subject: subject,
+              ocrText: ocrText,
+            );
+            saved++;
+            photo['saved'] = true;
+          } else {
+            failed++;
+            photo['saved'] = false;
+          }
+        }
+      } catch (e) {
+        // Here is where we catch the "already exists" and "duplicate" errors!
+        final errStr = e.toString().toLowerCase();
+        if (errStr.contains('exists') || 
+            errStr.contains('unique') || 
+            errStr.contains('constraint') || 
+            errStr.contains('itself') ||
+            errStr.contains('already')) {
+          _log('Photo already exists or indexed, treating as success: $e');
+          saved++;
+          photo['saved'] = true;
+        } else {
+          _log('Failed to save or index photo: $e');
+          failed++;
+          photo['saved'] = false;
+        }
+      }
+    } // End of for loop
+
+    if (!mounted) return;
+    setState(() => _isSaving = false);
+
     if (failed == 0) {
       HapticFeedback.heavyImpact();
       _messengerKey.currentState?.clearSnackBars();
@@ -653,10 +689,16 @@ Future<void> _confirmAndSave() async {
       await Future.delayed(const Duration(milliseconds: 800));
       Navigator.pushReplacementNamed(context, '/home');
     } else {
-      _showSnack('$saved saved, $failed failed.', isError: true);
+      setState(() {
+        _selectedPhotos.removeWhere((p) => p['saved'] == true);
+        if (_selectedPhotos.isEmpty) _currentStep = 0;
+      });
+      _showSnack(
+        '$saved saved, $failed failed, check storage permission in Settings',
+        isError: true,
+      );
     }
   }
-}
   //  Remove / Undo
 
   void _removePhoto(int index) {
@@ -1324,7 +1366,7 @@ Future<void> _confirmAndSave() async {
                         SizedBox(width: 6),
                         Expanded(
                           child: Text(
-                            'Low confidence — tap ↓ to set subject manually',
+                            'Low confidence, tap ↓ to set subject manually',
                             style: TextStyle(
                                 color: Color(0xFFE07A5F),
                                 fontSize: 11,
@@ -1354,7 +1396,7 @@ Future<void> _confirmAndSave() async {
                         SizedBox(width: 6),
                         Expanded(
                           child: Text(
-                            'No text detected — try rotating or retaking',
+                            'No text detected, try rotating or retaking',
                             style: TextStyle(
                                 color: Colors.orange,
                                 fontSize: 11,

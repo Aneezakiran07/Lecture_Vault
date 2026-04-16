@@ -1,6 +1,6 @@
 # LectureVault
 
-A Flutter Android app that automatically organizes your lecture photos by subject. Screenshot a slide, a ChatGPT explanation, a textbook page, or a whiteboard — LectureVault reads it and files it into the right folder instantly.
+A Flutter Android app that automatically organizes your lecture photos by subject. Screenshot a slide, a ChatGPT explanation, a textbook page, or a whiteboard, LectureVault reads it and files it into the right folder instantly.
 
 ---
 
