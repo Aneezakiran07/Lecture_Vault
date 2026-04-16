@@ -1,6 +1,6 @@
 # LectureVault
 
-A Flutter Android app that automatically organizes your lecture photos by subject. Screenshot a slide, a ChatGPT explanation, a textbook page, or a whiteboard, LectureVault reads it and files it into the right folder instantly.
+A Flutter Android app that automatically organizes your lecture photos by subject, lets you search every word inside them, and generates AI study guides instantly. Screenshot a slide, a ChatGPT explanation, a textbook page, or a whiteboard, LectureVault reads it and files it into the right folder instantly.
 
 ---
 
@@ -14,69 +14,131 @@ LectureVault fixes that. Every photo goes into the right subject folder automati
 
 ## What it works best on
 
-**Digital screenshots** are where LectureVault shines:
-- Lecture slides and presentation screenshots
-- ChatGPT / AI tool explanations
-- Textbook and PDF page photos
-- Typed notes and study guides
-- Website and article screenshots
+Digital screenshots are where LectureVault shines:
 
-**Printed and neat handwritten notes** are also well supported - the OCR pipeline handles clean text reliably.
+- Lecture slides and presentation screenshots  
+- ChatGPT / AI tool explanations  
+- Textbook and PDF page photos  
+- Typed notes and study guides  
+- Website and article screenshots  
 
-> Heavily cursive or very messy handwriting is best effort, classification still works when enough keywords are readable, but digital content gives the most consistent results.
+Printed and neat handwritten notes are also well supported. The OCR pipeline handles clean text reliably.
+
+Heavily cursive or very messy handwriting is best effort. Classification still works when enough keywords are readable, but digital content gives the most consistent results.
 
 ---
 
 ## How it works
 
-**1. OCR, Google ML Kit (on-device)**
+### 1. OCR, Google ML Kit (on-device)
 
-Text recognition runs entirely on your device. No internet required for this step. On top of raw OCR output, an enhancer layer corrects common recognition mistakes, strips noise words, extracts meaningful keywords, and detects academic patterns using regex , things like `derivative calculus`, `acid base chemistry`, or `supply demand economics`.
+Text recognition runs entirely on your device. No internet required for this step.
 
-**2. Classification, Gemini Flash**
-
-All OCR results from a batch of photos are sent to Gemini in a single request. Gemini returns a subject and confidence score for each photo. The prompt is structured so Gemini reasons through the content before committing to a label, this significantly improves accuracy on ambiguous content.
-
-**3. Storage, fully local**
-
-Photos are copied into folders named after your subjects. The folder structure lives wherever you choose during onboarding. Your subject list and storage path are saved locally using SharedPreferences. Nothing leaves your device except the OCR text sent to Gemini for classification.
+It extracts every single word from your images using background OCR. An enhancer layer then:
+- fixes common OCR mistakes  
+- removes noise words  
+- extracts meaningful keywords  
+- detects academic patterns using regex  
 
 ---
 
-## It's also a notes viewer
+### 2. Classification, Gemini Flash
 
-You don't need to open your gallery or file manager to read your notes. LectureVault lets you browse, zoom into, and share any photo directly from inside the app. Think of it as your own organized notes app, just one that files everything for you automatically.
+All OCR results from a batch of photos are sent to Gemini in a single request.
+
+Gemini returns:
+- subject label  
+- confidence score  
+
+The prompt is structured so Gemini reasons through the content before assigning a label, improving accuracy on tricky or mixed content.
+
+---
+
+### 3. Full-Text Search (Local)
+
+Every word from your screenshots is saved into a local search index under a dedicated `ocrFull` field.
+
+- Supports multi-word queries  
+- Matches words anywhere in the image  
+- Returns results instantly  
+
+Deleting a photo also removes it from the index to keep everything clean and lightweight.
+
+---
+
+### 4. AI Study Material Generation
+
+You can select:
+- individual images  
+- or full subject folders  
+
+The app sends extracted OCR text to Gemini and generates:
+- summaries  
+- flashcards  
+
+No prompt writing needed. It just works.
+
+---
+
+### 5. Storage, fully local
+
+- Photos are stored in subject-based folders  
+- Folder location is user-defined  
+- Preferences stored using SharedPreferences  
+
+Nothing leaves your device except OCR text sent to Gemini for classification.
+
+---
+
+## Features that student need (like me)
+
+You can:
+- browse notes  
+- zoom into images  
+- search instantly  
+- share directly  
+
+All inside the app.
+
+Includes:
+- animated splash screen  
+- search tab in bottom navbar  
+- improved UI with vivid buttons  
+
+Think of it as your own notes app that organizes everything for you automatically.
 
 ---
 
 ## Stack
 
-- Flutter (Android)
-- Google ML Kit Text Recognition
-- Gemini Flash API (free tier)
-- SharedPreferences
-- image_picker
-- file_picker
-- permission_handler
-- path
+- Flutter (Android)  
+- Google ML Kit Text Recognition  
+- Gemini Flash API (free tier)  
+- SharedPreferences  
+- image_picker  
+- file_picker  
+- permission_handler  
+- path  
 
 ---
 
 ## Getting started
 
-**Prerequisites**
+### Prerequisites
 
-- Flutter SDK
-- Android device or emulator (API 21+)
-- Gemini API key [get one free at ai.google.dev](https://ai.google.dev), no credit card required
+- Flutter SDK  
+- Android physical device (API 21+)  
+- Gemini API key (free at https://ai.google.dev)
 
-**Setup**
+---
+
+### Setup
 
 ```bash
 git clone https://github.com/Aneezakiran07/LectureVault
 cd lecturevault
 flutter pub get
-```
+````
 
 Create a `.env` file in the project root:
 
@@ -84,7 +146,7 @@ Create a `.env` file in the project root:
 GEMINI_API_KEY=your_key_here
 ```
 
-Add `.env` as an asset in `pubspec.yaml`:
+Add `.env` to `pubspec.yaml`:
 
 ```yaml
 flutter:
@@ -111,14 +173,17 @@ lib/
 │   ├── photo_item.dart
 │   └── subject_folder.dart
 ├── screens/
+│   ├── splash_screen.dart
 │   ├── onboarding/folder_setup_screen.dart
 │   ├── home/home_screen.dart
 │   ├── upload/upload_screen.dart
 │   ├── folder_view/folder_view_screen.dart
+│   ├── search/search_screen.dart
 │   └── settings/settings_screen.dart
 └── services/
     ├── storage_service.dart
     ├── permission_service.dart
+    ├── search_service.dart
     ├── ocr_service.dart
     ├── ocr_enhancer.dart
     ├── ocr_result.dart
@@ -128,22 +193,53 @@ lib/
 
 ---
 
-## Rate limits (not a concern)
+## Under the hood
 
-Gemini's free tier allows 500 requests per day. LectureVault batches an entire upload session into **one request** regardless of photo count, so 20 photos = 1 request. That's up to 10,000 photos classified per day on the free tier.
+LectureVault handles async operations and edge cases carefully:
 
-If you want your own independent quota, just clone the repo and drop your own Gemini key in `.env`.
+- Memory Management
+  Background processes stop instantly when leaving screens using mount guards
+
+- Batch Upload Safety
+  Uses hash-based filenames to prevent overwrite during fast processing
+
+- Smart Error Handling
+  Duplicate and constraint errors are treated as success to avoid crashes
+
+- Index Sanitization
+  Filters out UI error messages so search data stays clean
+
+---
+
+## Rate limits
+
+Gemini free tier allows 500 requests per day.
+
+LectureVault batches uploads:
+
+* 1 session = 1 request
+* 20 photos = still 1 request
+
+That is up to ~10,000 photos per day.
 
 ---
 
 ## Limitations
 
-- Android only for now.
-- Photos with very little readable text (blank pages, pure diagrams) are marked Unclassified, you can manually move them to any folder.
-- Gemini classification requires an internet connection. OCR runs offline.
+* Android only
+* Low-text images may be marked Unclassified
+* Internet required for Gemini classification
+* OCR works offline
 
 ---
 
 ## Development approach
 
-Built incrementally with each increment pushed as a separate branch. Order was: UI screens with mock data → SharedPreferences storage → real photo upload and file copying → folder view → settings → OCR pipeline → Gemini classification.
+Built incrementally:
+
+UI → Storage → File handling → Folder view → Settings → OCR → Classification → Search → AI study generation → Async + memory fixes
+
+Each stage was developed and improved step by step.
+
+```
+```
